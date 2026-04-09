@@ -1,0 +1,116 @@
+SCOUTER - Complete Project Structure
+====================================
+
+Project Location: /sessions/great-ecstatic-heisenberg/scouter
+
+File Tree:
+├── app/
+│   ├── api/
+│   │   ├── analyze/
+│   │   │   └── route.ts                    (PageSpeed Insights API integration)
+│   │   └── propose/
+│   │       └── route.ts                    (Gemini API integration)
+│   ├── globals.css                         (Tailwind CSS imports + custom styles)
+│   ├── layout.tsx                          (Root layout with background effects)
+│   └── page.tsx                            (Main page with full app logic)
+│
+├── components/
+│   ├── Header.tsx                          (Navigation header)
+│   ├── UrlInput.tsx                        (URL input form with validation)
+│   ├── LoadingAnimation.tsx                (Radar scan animation)
+│   ├── ScoreRadar.tsx                      (Recharts radar chart)
+│   ├── WeaknessReport.tsx                  (Client-friendly issue translation)
+│   └── ProposalDraft.tsx                   (Proposal display with copy button)
+│
+├── Configuration Files:
+│   ├── package.json                        (Dependencies: Next.js, React, Tailwind, Recharts, Gemini AI)
+│   ├── tsconfig.json                       (TypeScript configuration)
+│   ├── next.config.js                      (Next.js configuration)
+│   ├── tailwind.config.js                  (Tailwind CSS theme extension)
+│   ├── postcss.config.js                   (PostCSS + Tailwind + Autoprefixer)
+│   └── tsconfig.json                       (TypeScript setup)
+│
+├── Environment:
+│   ├── .env.example                        (Environment variable template)
+│   └── .gitignore                          (Git ignore rules)
+│
+└── Documentation:
+    ├── README.md                           (Complete documentation)
+    └── PROJECT_STRUCTURE.txt               (This file)
+
+
+Key Features Implemented:
+========================
+
+1. PAGE COMPONENTS (app/page.tsx):
+   - Hero section with prominent "スカウト開始" button
+   - URL input validation
+   - Analysis state management
+   - Results display with smooth transitions
+   - Error handling and messages
+   - "新しいサイトを分析" button for multiple analyses
+
+2. API ROUTES:
+   ✓ /api/analyze - Google PageSpeed Insights integration
+   ✓ /api/propose - Google Gemini API for proposal generation
+
+3. UI COMPONENTS:
+   ✓ Header with SCOUTER branding
+   ✓ UrlInput with form validation
+   ✓ LoadingAnimation with radar scanning effects
+   ✓ ScoreRadar with Recharts (Performance, Accessibility, Best Practices, SEO)
+   ✓ WeaknessReport with Japanese translations
+   ✓ ProposalDraft with copy-to-clipboard functionality
+
+4. STYLING:
+   ✓ Dark theme with cyan/teal accent colors
+   ✓ Tailwind CSS with custom animations (scan, glow, pulse)
+   ✓ Mobile-responsive design
+   ✓ Glassmorphism effects
+   ✓ Smooth fade-in animations
+
+5. INTEGRATIONS:
+   ✓ Google PageSpeed Insights API (Free, no key required)
+   ✓ Google Gemini API (gemini-2.0-flash model)
+   ✓ Recharts for data visualization
+   ✓ TypeScript for type safety
+
+
+Technology Stack:
+================
+- Next.js 15 (App Router)
+- React 19
+- TypeScript 5.3
+- Tailwind CSS 3.4
+- Recharts 2.10
+- Google Generative AI (@google/generative-ai 0.21)
+
+
+Setup Instructions:
+==================
+1. npm install
+2. Create .env.local with GEMINI_API_KEY
+3. npm run dev
+4. Open http://localhost:3000
+
+Production Build:
+npm run build
+npm start
+
+Vercel Deployment:
+vercel (configure GEMINI_API_KEY in environment variables)
+
+
+Code Quality:
+=============
+✓ Full TypeScript implementation
+✓ Proper error handling
+✓ Input validation
+✓ Loading states
+✓ Responsive design
+✓ Accessible HTML
+✓ No placeholder/stub code
+✓ Production-ready code
+
+
+All files are complete and fully functional. No dependencies on external fixtures or stubs.
