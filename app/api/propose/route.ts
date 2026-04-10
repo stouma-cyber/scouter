@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
+// Vercel Hobby plan max is 60s; allow enough time for retries
+export const maxDuration = 60;
+
 interface ScoreData {
   name: string;
   Performance: number;
@@ -92,12 +95,31 @@ ${issuesText}
 
 提案書は営業向けのドラフトとして、信頼感を持たせながらも高圧的でない表現を心がけてください。`;
 
-    // Call Gemini API with gemini-2.0-flash model
+    // Call Gemini API with gemini-2.0-flash model (with retry for 429 rate limits)
     const client = new GoogleGenerativeAI(apiKey);
     const model = client.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
-    const result = await model.generateContent(prompt);
-    const proposal = result.response.text();
+    const maxRetries = 2;
+    const baseDelay = 10000; // 10 seconds
+    let result;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        result = await model.generateContent(prompt);
+        break; // Success, exit retry loop
+      } catch (retryError: unknown) {
+        const errorMsg = retryError instanceof Error ? retryError.message : String(retryError);
+        const is429 = errorMsg.includes('429') || errorMsg.includes('Too Many Requests') || errorMsg.includes('quota');
+        if (is429 && attempt < maxRetries) {
+          const delay = baseDelay * Math.pow(2, attempt); // 15s, 30s, 60s
+          console.log(`Gemini API rate limited (attempt ${attempt + 1}/${maxRetries + 1}). Retrying in ${delay / 1000}s...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        } else {
+          throw retryError; // Not a rate limit error or max retries exceeded
+        }
+      }
+    }
+
+    const proposal = result!.response.text();
 
     if (!proposal) {
       throw new Error('提案書生成に失敗しました');

@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// Vercel Hobby plan max is 60s
+export const maxDuration = 60;
+
 interface PageSpeedInsightsResponse {
   lighthouseResult?: {
     categories: {
@@ -25,7 +28,9 @@ async function fetchWithRetry(url: string, maxRetries = 3): Promise<Response> {
     });
 
     if (response.status === 429) {
-      const waitTime = Math.pow(2, attempt + 1) * 5000;
+      // Rate limited - wait and retry
+      const waitTime = Math.pow(2, attempt + 1) * 5000; // 10s, 20s, 40s
+      console.log(`Rate limited (429). Retrying in ${waitTime / 1000}s... (attempt ${attempt + 1}/${maxRetries})`);
       await new Promise(resolve => setTimeout(resolve, waitTime));
       continue;
     }
@@ -33,6 +38,7 @@ async function fetchWithRetry(url: string, maxRetries = 3): Promise<Response> {
     return response;
   }
 
+  // All retries exhausted
   throw new Error('RATE_LIMITED');
 }
 
@@ -47,6 +53,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validate URL
     try {
       new URL(url);
     } catch {
@@ -56,6 +63,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Call Google PageSpeed Insights API
     const psiUrl = new URL('https://www.googleapis.com/pagespeedonline/v5/runPagespeed');
     psiUrl.searchParams.append('url', url);
     psiUrl.searchParams.append('strategy', 'mobile');
@@ -64,6 +72,7 @@ export async function POST(request: NextRequest) {
     psiUrl.searchParams.append('category', 'best-practices');
     psiUrl.searchParams.append('category', 'seo');
 
+    // Add API key if available (increases rate limit from ~2/min to 25,000/day)
     const apiKey = process.env.PSI_API_KEY;
     if (apiKey) {
       psiUrl.searchParams.append('key', apiKey);
@@ -83,7 +92,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!psiResponse.ok) {
-      throw new Error('PageSpeed Insights API error: ' + psiResponse.status);
+      throw new Error(`PageSpeed Insights API error: ${psiResponse.status}`);
     }
 
     const psiData: PageSpeedInsightsResponse = await psiResponse.json();
@@ -97,20 +106,24 @@ export async function POST(request: NextRequest) {
 
     const lighthouse = psiData.lighthouseResult;
 
+    // Extract scores (0-100 scale)
     const performanceScore = (lighthouse.categories.performance?.score ?? 0) * 100;
     const accessibilityScore = (lighthouse.categories.accessibility?.score ?? 0) * 100;
     const bestPracticesScore = (lighthouse.categories['best-practices']?.score ?? 0) * 100;
     const seoScore = (lighthouse.categories.seo?.score ?? 0) * 100;
 
+    // Extract failed audits (issues)
     const issues: string[] = [];
     const audits = lighthouse.audits;
 
+    // Collect failed audits
     Object.entries(audits).forEach(([auditId, audit]) => {
       if (audit.scoreDisplayMode !== 'notApplicable' && audit.score !== undefined && audit.score < 0.9) {
-        issues.push('[' + auditId + '] Score: ' + Math.round(audit.score * 100));
+        issues.push(`[${auditId}] Score: ${Math.round(audit.score * 100)}`);
       }
     });
 
+    // Limit to top 8 issues
     const topIssues = issues.slice(0, 8);
 
     const scores = [
