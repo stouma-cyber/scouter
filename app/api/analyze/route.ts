@@ -20,17 +20,17 @@ interface PageSpeedInsightsResponse {
   };
 }
 
-async function fetchWithRetry(url: string, maxRetries = 3): Promise<Response> {
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
+async function fetchWithRetry(url: string, maxRetries = 2): Promise<Response> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const response = await fetch(url, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
     });
 
-    if (response.status === 429) {
-      // Rate limited - wait and retry
-      const waitTime = Math.pow(2, attempt + 1) * 5000; // 10s, 20s, 40s
-      console.log(`Rate limited (429). Retrying in ${waitTime / 1000}s... (attempt ${attempt + 1}/${maxRetries})`);
+    if (response.status === 429 && attempt < maxRetries) {
+      // Rate limited - wait and retry (5s, 10s)
+      const waitTime = (attempt + 1) * 5000;
+      console.log(`Rate limited (429). Retrying in ${waitTime / 1000}s... (attempt ${attempt + 1}/${maxRetries + 1})`);
       await new Promise(resolve => setTimeout(resolve, waitTime));
       continue;
     }

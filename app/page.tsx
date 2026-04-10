@@ -41,8 +41,12 @@ export default function Home() {
       });
 
       if (!analyzeResponse.ok) {
-        const errorData = await analyzeResponse.json();
-        throw new Error(errorData.error || 'Analysis failed');
+        const contentType = analyzeResponse.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const errorData = await analyzeResponse.json();
+          throw new Error(errorData.error || 'サイト分析に失敗しました');
+        }
+        throw new Error(analyzeResponse.status === 504 ? 'サーバーがタイムアウトしました。もう一度お試しください。' : 'サイト分析に失敗しました');
       }
 
       const analysisData = await analyzeResponse.json();
@@ -61,8 +65,12 @@ export default function Home() {
       });
 
       if (!proposeResponse.ok) {
-        const errorData = await proposeResponse.json();
-        throw new Error(errorData.error || 'Proposal generation failed');
+        const contentType = proposeResponse.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const errorData = await proposeResponse.json();
+          throw new Error(errorData.error || '提案書生成に失敗しました');
+        }
+        throw new Error(proposeResponse.status === 504 ? 'AI提案書の生成がタイムアウトしました。もう一度お試しください。' : '提案書生成に失敗しました');
       }
 
       const proposalData = await proposeResponse.json();
