@@ -27,10 +27,10 @@ async function fetchWithRetry(url: string, maxRetries = 2): Promise<Response> {
       headers: { 'Accept': 'application/json' },
     });
 
-    if (response.status === 429 && attempt < maxRetries) {
-      // Rate limited - wait and retry (5s, 10s)
+    if ((response.status === 429 || response.status >= 500) && attempt < maxRetries) {
+      // Rate limited or server error - wait and retry (5s, 10s)
       const waitTime = (attempt + 1) * 5000;
-      console.log(`Rate limited (429). Retrying in ${waitTime / 1000}s... (attempt ${attempt + 1}/${maxRetries + 1})`);
+      console.log(`PSI API error (${response.status}). Retrying in ${waitTime / 1000}s... (attempt ${attempt + 1}/${maxRetries + 1})`);
       await new Promise(resolve => setTimeout(resolve, waitTime));
       continue;
     }
@@ -92,7 +92,13 @@ export async function POST(request: NextRequest) {
     }
 
     if (!psiResponse.ok) {
-      throw new Error(`PageSpeed Insights API error: ${psiResponse.status}`);
+      const statusMsg = psiResponse.status >= 500
+        ? 'Google PageSpeed APIが一時的に利用できません。しばらく待ってから再度お試しください。'
+        : `PageSpeed Insights API error: ${psiResponse.status}`;
+      return NextResponse.json(
+        { error: statusMsg },
+        { status: psiResponse.status >= 500 ? 503 : 500 }
+      );
     }
 
     const psiData: PageSpeedInsightsResponse = await psiResponse.json();
