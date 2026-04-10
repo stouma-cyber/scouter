@@ -17,6 +17,25 @@ interface PageSpeedInsightsResponse {
   };
 }
 
+async function fetchWithRetry(url: string, maxRetries = 3): Promise<Response> {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
+
+    if (response.status === 429) {
+      const waitTime = Math.pow(2, attempt + 1) * 5000;
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+      continue;
+    }
+
+    return response;
+  }
+
+  throw new Error('RATE_LIMITED');
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { url } = await request.json();
@@ -28,7 +47,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate URL
     try {
       new URL(url);
     } catch {
@@ -38,7 +56,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Call Google PageSpeed Insights API (free, no key required)
     const psiUrl = new URL('https://www.googleapis.com/pagespeedonline/v5/runPagespeed');
     psiUrl.searchParams.append('url', url);
     psiUrl.searchParams.append('strategy', 'mobile');
@@ -47,15 +64,26 @@ export async function POST(request: NextRequest) {
     psiUrl.searchParams.append('category', 'best-practices');
     psiUrl.searchParams.append('category', 'seo');
 
-    const psiResponse = await fetch(psiUrl.toString(), {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-      },
-    });
+    const apiKey = process.env.PSI_API_KEY;
+    if (apiKey) {
+      psiUrl.searchParams.append('key', apiKey);
+    }
+
+    let psiResponse: Response;
+    try {
+      psiResponse = await fetchWithRetry(psiUrl.toString());
+    } catch (error) {
+      if (error instanceof Error && error.message === 'RATE_LIMITED') {
+        return NextResponse.json(
+          { error: 'Google APIのレート制限に達しました。30秒ほど待ってから再度お試しください。' },
+          { status: 429 }
+        );
+      }
+      throw error;
+    }
 
     if (!psiResponse.ok) {
-      throw new Error(`PageSpeed Insights API error: ${psiResponse.status}`);
+      throw new Error('PageSpeed Insights API error: ' + psiResponse.status);
     }
 
     const psiData: PageSpeedInsightsResponse = await psiResponse.json();
@@ -69,24 +97,20 @@ export async function POST(request: NextRequest) {
 
     const lighthouse = psiData.lighthouseResult;
 
-    // Extract scores (0-100 scale)
     const performanceScore = (lighthouse.categories.performance?.score ?? 0) * 100;
     const accessibilityScore = (lighthouse.categories.accessibility?.score ?? 0) * 100;
     const bestPracticesScore = (lighthouse.categories['best-practices']?.score ?? 0) * 100;
     const seoScore = (lighthouse.categories.seo?.score ?? 0) * 100;
 
-    // Extract failed audits (issues)
     const issues: string[] = [];
     const audits = lighthouse.audits;
 
-    // Collect failed audits
     Object.entries(audits).forEach(([auditId, audit]) => {
       if (audit.scoreDisplayMode !== 'notApplicable' && audit.score !== undefined && audit.score < 0.9) {
-        issues.push(`[${auditId}] Score: ${Math.round(audit.score * 100)}`);
+        issues.push('[' + auditId + '] Score: ' + Math.round(audit.score * 100));
       }
     });
 
-    // Limit to top 8 issues
     const topIssues = issues.slice(0, 8);
 
     const scores = [
