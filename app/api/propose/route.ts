@@ -97,7 +97,7 @@ ${issuesText}
 
     // Call Gemini API with gemini-2.0-flash model (with retry for 429 rate limits)
     const client = new GoogleGenerativeAI(apiKey);
-    const model = client.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = client.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
 
     const maxRetries = 2;
     const baseDelay = 10000; // 10 seconds
