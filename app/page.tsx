@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Header from '@/components/Header';
 import UrlInput from '@/components/UrlInput';
 import LoadingAnimation from '@/components/LoadingAnimation';
+import SiteMetaInfo from '@/components/SiteMetaInfo';
 import ScoreRadar from '@/components/ScoreRadar';
 import WeaknessReport from '@/components/WeaknessReport';
 import ProposalDraft from '@/components/ProposalDraft';
@@ -176,6 +177,9 @@ export default function Home() {
                 <UrlInput onAnalyze={handleAnalyze} isLoading={isLoading} />
               </div>
 
+              {/* Site Meta Info */}
+              <SiteMetaInfo url={result.url} />
+
               {/* Score Radar */}
               <ScoreRadar data={result.scores} />
 
@@ -214,3 +218,4 @@ export default function Home() {
     </>
   );
 }
+
