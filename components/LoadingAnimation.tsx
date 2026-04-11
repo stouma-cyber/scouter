@@ -6,9 +6,9 @@ const steps = [
   { label: 'サイトに接続中...', icon: '🌐' },
   { label: 'Lighthouse分析を実行中...', icon: '🔬' },
   { label: 'パフォーマンスを測定中...', icon: '⚡' },
-  { label: 'SEOスコアを計算中...', icon: '📊' },
   { label: 'CMS・技術スタックを検出中...', icon: '🔍' },
-  { label: '提案書を生成中...', icon: '📝' ,
+  { label: 'SEOスコアを計算中...', icon: '📊' },
+  { label: '提案書を生成中...', icon: '📝' },
 ];
 
 export default function LoadingAnimation() {
