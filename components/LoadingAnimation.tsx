@@ -1,108 +1,89 @@
 'use client';
 
+import { useState, useEffect } from 'react';
+
+const steps = [
+  { label: 'サイトに接続中...', icon: '🌐' },
+  { label: 'Lighthouse分析を実行中...', icon: '🔬' },
+  { label: 'パフォーマンスを測定中...', icon: '⚡' },
+  { label: 'SEOスコアを計算中...', icon: '📊' },
+  { label: '提案書を生成中...', icon: '📝' },
+];
+
 export default function LoadingAnimation() {
+  const [currentStep, setCurrentStep] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentStep((prev) => (prev < steps.length - 1 ? prev + 1 : prev));
+    }, 4000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
-    <div className="flex flex-col items-center justify-center gap-8 py-20">
-      {/* Radar scanning animation */}
-      <div className="relative w-32 h-32">
-        {/* Outer circle */}
-        <div className="absolute inset-0 border-2 border-accent/50 rounded-full animate-pulse"></div>
+    <div className="flex flex-col items-center justify-center gap-10 py-24">
+      {/* Radar animation */}
+      <div className="relative w-40 h-40">
+        {/* Background circles */}
+        <div className="absolute inset-0 border-2 border-cyan-500/10 rounded-full"></div>
+        <div className="absolute inset-4 border-2 border-cyan-500/15 rounded-full"></div>
+        <div className="absolute inset-8 border-2 border-cyan-500/20 rounded-full"></div>
+        <div className="absolute inset-12 border-2 border-cyan-500/25 rounded-full"></div>
 
-        {/* Mid circle */}
-        <div className="absolute inset-4 border-2 border-accent/30 rounded-full"></div>
+        {/* Sweep arm */}
+        <div className="absolute inset-0 animate-spin" style={{ animationDuration: '2s' }}>
+          <div className="w-1/2 h-0.5 absolute top-1/2 left-1/2 origin-left bg-gradient-to-r from-cyan-400 to-transparent rounded-full"></div>
+          {/* Sweep trail */}
+          <div className="absolute top-1/2 left-1/2 w-1/2 h-1/2 origin-top-left -rotate-12 opacity-30" style={{
+            background: 'conic-gradient(from 0deg, transparent, rgba(6,182,212,0.3), transparent)',
+            borderRadius: '0 100% 0 0',
+          }}></div>
+        </div>
 
-        {/* Inner circle */}
-        <div className="absolute inset-8 border-2 border-accent/50 rounded-full"></div>
+        {/* Center pulse */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="w-4 h-4 rounded-full bg-cyan-400 shadow-lg shadow-cyan-400/50 animate-pulse"></div>
+        </div>
 
-        {/* Scanning lines */}
-        <svg
-          className="absolute inset-0 w-full h-full"
-          viewBox="0 0 128 128"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          {/* Horizontal line scanning */}
-          <line
-            x1="64"
-            y1="10"
-            x2="64"
-            y2="118"
-            stroke="url(#gradient1)"
-            strokeWidth="2"
-            opacity="0.8"
-            className="animate-pulse"
-          />
-
-          {/* Vertical line scanning */}
-          <line
-            x1="10"
-            y1="64"
-            x2="118"
-            y2="64"
-            stroke="url(#gradient2)"
-            strokeWidth="2"
-            opacity="0.6"
-            className="animate-pulse"
-          />
-
-          {/* Diagonal lines */}
-          <line
-            x1="20"
-            y1="20"
-            x2="108"
-            y2="108"
-            stroke="url(#gradient3)"
-            strokeWidth="1.5"
-            opacity="0.4"
-          />
-          <line
-            x1="108"
-            y1="20"
-            x2="20"
-            y2="108"
-            stroke="url(#gradient3)"
-            strokeWidth="1.5"
-            opacity="0.4"
-          />
-
-          <defs>
-            <linearGradient id="gradient1" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="rgba(6, 182, 212, 0)" />
-              <stop offset="50%" stopColor="rgba(6, 182, 212, 1)" />
-              <stop offset="100%" stopColor="rgba(6, 182, 212, 0)" />
-            </linearGradient>
-            <linearGradient id="gradient2" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="rgba(34, 211, 238, 0)" />
-              <stop offset="50%" stopColor="rgba(34, 211, 238, 1)" />
-              <stop offset="100%" stopColor="rgba(34, 211, 238, 0)" />
-            </linearGradient>
-            <linearGradient id="gradient3" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="rgba(6, 182, 212, 0.3)" />
-              <stop offset="50%" stopColor="rgba(34, 211, 238, 0.6)" />
-              <stop offset="100%" stopColor="rgba(6, 182, 212, 0.3)" />
-            </linearGradient>
-          </defs>
-        </svg>
-
-        {/* Center dot */}
-        <div className="absolute inset-1/2 w-2 h-2 -ml-1 -mt-1 bg-accent rounded-full animate-glow"></div>
+        {/* Blips */}
+        <div className="absolute top-[20%] right-[25%] w-2 h-2 rounded-full bg-cyan-300 animate-ping" style={{ animationDelay: '0.5s', animationDuration: '2s' }}></div>
+        <div className="absolute bottom-[30%] left-[20%] w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" style={{ animationDelay: '1.2s', animationDuration: '2.5s' }}></div>
       </div>
 
-      {/* Loading text */}
-      <div className="text-center space-y-2">
-        <p className="text-lg font-semibold text-accentLight">スキャン中...</p>
-        <p className="text-sm text-slate-400">サイト分析を実行しています</p>
-      </div>
-
-      {/* Progress dots */}
-      <div className="flex gap-2">
-        {[0, 1, 2].map((i) => (
+      {/* Step progress */}
+      <div className="w-full max-w-sm space-y-3">
+        {steps.map((step, i) => (
           <div
             key={i}
-            className="w-2 h-2 bg-accent rounded-full animate-pulse"
-            style={{
-              animationDelay: `${i * 0.2}s`,
-            }}
-          ></div>
+            className="flex items-center gap-3 transition-all duration-500"
+            style={{ opacity: i <= currentStep ? 1 : 0.25, transform: i === currentStep ? 'translateX(4px)' : 'none' }}
+          >
+            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs shrink-0 transition-all duration-300 ${
+              i < currentStep
+                ? 'bg-cyan-500/20 text-cyan-400'
+                : i === currentStep
+                ? 'bg-cyan-500/30 text-cyan-300 ring-2 ring-cyan-500/30'
+                : 'bg-slate-800/50 text-slate-600'
+            }`}>
+              {i < currentStep ? '✓' : step.icon}
+            </div>
+            <span className={`text-sm transition-colors duration-300 ${
+              i === currentStep ? 'text-white font-medium' : i < currentStep ? 'text-slate-400' : 'text-slate-600'
+            }`}>
+              {step.label}
+            </span>
+            {i === currentStep && (
+              <div className="ml-auto flex gap-1">
+                {[0, 1, 2].map((d) => (
+                  <div
+                    key={d}
+                    className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"
+                    style={{ animationDelay: `${d * 0.2}s` }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         ))}
       </div>
     </div>

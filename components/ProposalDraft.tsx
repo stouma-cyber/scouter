@@ -241,10 +241,16 @@ export default function ProposalDraft({ proposal, isLoading }: ProposalDraftProp
   return (
     <div className="section-container fade-in">
       <div className="flex items-center justify-between mb-6">
-        <h2 className="heading-jp m-0">📋 提案書ドラフト</h2>
+        <div className="flex items-center gap-3">
+          <div className="w-1.5 h-8 rounded-full bg-gradient-to-b from-violet-400 to-fuchsia-500"></div>
+          <div>
+            <h2 className="text-xl font-bold text-white">提案書ドラフト</h2>
+            <p className="text-xs text-slate-400 mt-0.5">AI自動生成 &mdash; コピーして営業資料にご活用ください</p>
+          </div>
+        </div>
         <button
           onClick={handleCopy}
-          className="text-sm bg-accent/20 hover:bg-accent/30 text-accent hover:text-accentLight px-4 py-2 rounded-lg transition-all duration-200 flex items-center gap-2"
+          className="text-sm bg-slate-800/60 hover:bg-slate-700/60 text-cyan-400 border border-slate-700/40 px-4 py-2 rounded-xl transition-all duration-200 flex items-center gap-2"
         >
           {copied ? (
             <>
@@ -260,20 +266,17 @@ export default function ProposalDraft({ proposal, isLoading }: ProposalDraftProp
         </button>
       </div>
 
-      <div className="bg-secondary/30 border border-accent/20 rounded-lg p-6 max-h-[600px] overflow-y-auto">
+      <div className="bg-slate-900/40 border border-slate-700/30 rounded-xl p-6 max-h-[600px] overflow-y-auto">
         <div className="prose prose-invert max-w-none text-sm">
           {renderMarkdown(proposal)}
         </div>
       </div>
 
-      <div className="mt-6 pt-6 border-t border-accent/10 flex gap-4 flex-col sm:flex-row">
-        <div className="flex-1 text-sm text-slate-400">
-          <p>
-            <span className="font-semibold text-accent">ご注意:</span>{' '}
-            本ドラフトはAIにより自動生成されています。最終提案書として使用する前に、
-            内容の確認・編集をお願いします。
-          </p>
-        </div>
+      <div className="mt-6 pt-5 border-t border-slate-700/30 flex items-center gap-3">
+        <div className="w-5 h-5 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-400 text-xs shrink-0">!</div>
+        <p className="text-xs text-slate-500 leading-relaxed">
+          本ドラフトはAIにより自動生成されています。最終提案書として使用する前に、内容の確認・編集をお願いします。
+        </p>
       </div>
     </div>
   );

@@ -97,30 +97,57 @@ export default function Home() {
       <Header />
 
       <main className="min-h-screen pb-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Hero Section */}
-          {!result && (
-            <div className="py-20 sm:py-32 text-center space-y-12">
-              <div className="space-y-4">
-                <h1 className="text-4xl sm:text-5xl md:text-6xl font-black bg-gradient-to-r from-accent via-accentLight to-blue-400 bg-clip-text text-transparent mb-4">
-                  サイト診断→提案書自動生成
-                </h1>
-                <p className="text-lg sm:text-xl text-slate-400 max-w-2xl mx-auto">
-                  Webサイトを分析し、AIが自動で営業提案書を生成します。
+          {!result && !isLoading && (
+            <div className="py-24 sm:py-36 text-center space-y-12 fade-in">
+              <div className="space-y-5">
+                {/* Badge */}
+                <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-cyan-500/10 border border-cyan-500/20 rounded-full text-xs text-cyan-400 font-medium">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                  Powered by Google Lighthouse & AI
+                </div>
+
+                <h1 className="text-4xl sm:text-5xl md:text-6xl font-black text-white leading-tight">
+                  Webサイトを診断して
                   <br />
-                  サウスエージェンシーの提案営業を加速化。
+                  <span className="bg-gradient-to-r from-cyan-400 via-blue-400 to-violet-400 bg-clip-text text-transparent">
+                    提案書を自動生成
+                  </span>
+                </h1>
+                <p className="text-base sm:text-lg text-slate-400 max-w-xl mx-auto leading-relaxed">
+                  URLを入力するだけで、パフォーマンス・SEO・アクセシビリティを
+                  AI が分析し、営業提案書のドラフトを自動作成します。
                 </p>
               </div>
 
-              <div className="bg-gradient-to-r from-accent/10 to-blue-500/10 border border-accent/20 rounded-2xl p-8 sm:p-12 max-w-3xl mx-auto">
-                <UrlInput onAnalyze={handleAnalyze} isLoading={isLoading} />
-              </div>
+              <UrlInput onAnalyze={handleAnalyze} isLoading={isLoading} />
 
               {error && (
-                <div className="max-w-2xl mx-auto bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400 text-sm">
+                <div className="max-w-lg mx-auto bg-red-500/10 border border-red-500/20 rounded-xl p-4 text-red-400 text-sm flex items-center gap-3">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>
                   {error}
                 </div>
               )}
+
+              {/* Feature cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-2xl mx-auto pt-8">
+                <div className="bg-slate-800/30 border border-slate-700/20 rounded-xl p-5 text-left">
+                  <div className="text-2xl mb-2">⚡</div>
+                  <h3 className="font-semibold text-white text-sm mb-1">パフォーマンス分析</h3>
+                  <p className="text-xs text-slate-500">Core Web Vitalsを含む速度・表示品質の診断</p>
+                </div>
+                <div className="bg-slate-800/30 border border-slate-700/20 rounded-xl p-5 text-left">
+                  <div className="text-2xl mb-2">🔍</div>
+                  <h3 className="font-semibold text-white text-sm mb-1">SEO/アクセシビリティ</h3>
+                  <p className="text-xs text-slate-500">検索エンジン最適化とアクセシビリティのチェック</p>
+                </div>
+                <div className="bg-slate-800/30 border border-slate-700/20 rounded-xl p-5 text-left">
+                  <div className="text-2xl mb-2">📝</div>
+                  <h3 className="font-semibold text-white text-sm mb-1">AI提案書生成</h3>
+                  <p className="text-xs text-slate-500">分析結果から営業提案書のドラフトを自動作成</p>
+                </div>
+              </div>
             </div>
           )}
 
@@ -129,14 +156,24 @@ export default function Home() {
 
           {/* Results Section */}
           {result && !isLoading && (
-            <div className="py-12 space-y-8">
-              <div className="text-center mb-12">
-                <h2 className="text-3xl font-bold text-accentLight mb-2">
+            <div className="py-12 space-y-10 stagger-in">
+              {/* Results header */}
+              <div className="text-center space-y-3">
+                <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-xs text-emerald-400 font-medium">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m5 12 5 5L20 7"/></svg>
                   分析完了
+                </div>
+                <h2 className="text-2xl font-bold text-white">
+                  診断レポート
                 </h2>
-                <p className="text-slate-400 break-all text-sm sm:text-base">
+                <p className="text-slate-500 text-sm break-all max-w-lg mx-auto">
                   {result.url}
                 </p>
+              </div>
+
+              {/* Compact URL input for re-analysis */}
+              <div className="max-w-2xl mx-auto">
+                <UrlInput onAnalyze={handleAnalyze} isLoading={isLoading} />
               </div>
 
               {/* Score Radar */}
@@ -150,37 +187,28 @@ export default function Home() {
                 proposal={result.proposal}
                 isLoading={isGeneratingProposal}
               />
-
-              {/* New Analysis Button */}
-              <div className="text-center pt-8">
-                <button
-                  onClick={() => {
-                    setResult(null);
-                    setError('');
-                  }}
-                  className="btn-primary inline-flex items-center gap-2"
-                >
-                  <span>🔄</span>
-                  別のサイトを分析
-                </button>
-              </div>
             </div>
           )}
 
-          {/* Error Message */}
+          {/* Error Message (when result exists) */}
           {error && result && (
-            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400 text-sm max-w-2xl mx-auto">
-              エラー: {error}
+            <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 text-red-400 text-sm max-w-lg mx-auto mt-8 flex items-center gap-3">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>
+              {error}
             </div>
           )}
         </div>
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-accent/10 bg-secondary/20 py-8 mt-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-sm text-slate-500">
-          <p>© 2024 サウスエージェンシー - SCOUTER</p>
-          <p className="mt-2">Powered by Google PageSpeed Insights & Gemini API</p>
+      <footer className="border-t border-slate-800/50 py-8 mt-20">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-600">
+          <p>&copy; 2024 サウスエージェンシー &mdash; SCOUTER</p>
+          <div className="flex items-center gap-4">
+            <span>Powered by Google Lighthouse</span>
+            <span className="w-1 h-1 rounded-full bg-slate-700"></span>
+            <span>Gemini AI</span>
+          </div>
         </div>
       </footer>
     </>
