@@ -59,6 +59,7 @@ export default function Home() {
   const [serpItems, setSerpItems] = useState<SerpItem[]>([]);
   const [crawledAt, setCrawledAt] = useState<string | null>(null);
   const [diffResults, setDiffResults] = useState<DiffResult[]>([]);
+  const [diffDates, setDiffDates] = useState<{ latestDate: string; prevDate: string } | null>(null);
   const [savedDiffs, setSavedDiffs] = useState<SavedDiffResult[]>([]);
   const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set());
   const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
@@ -193,6 +194,9 @@ export default function Home() {
       const data = await res.json();
       if (res.ok) {
         setDiffResults(data.results || []);
+        if (data.latestDate && data.prevDate) {
+          setDiffDates({ latestDate: data.latestDate, prevDate: data.prevDate });
+        }
         if (data.results?.length === 0) {
           setSuccessMsg('順位が上がった記事はありませんでした');
         } else {
@@ -234,6 +238,7 @@ export default function Home() {
   const selectKeyword = (kw: Keyword) => {
     setSelectedKeyword(kw);
     setDiffResults([]);
+    setDiffDates(null);
     setCrawlResult(null);
     setSerpItems([]);
     setCrawledAt(null);
@@ -541,9 +546,18 @@ export default function Home() {
                         </div>
                       ) : (
                         <div className="space-y-4">
-                          <h2 className="text-sm font-bold text-white">
-                            差分検知結果 ({diffResults.length}件)
-                          </h2>
+                          <div className="flex items-center justify-between mb-1">
+                            <h2 className="text-sm font-bold text-white">
+                              差分検知結果 ({diffResults.length}件)
+                            </h2>
+                            {diffDates && (
+                              <span className="text-[11px] text-slate-500 bg-slate-800/50 px-2.5 py-1 rounded-full">
+                                🕐 {new Date(diffDates.prevDate).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                {' → '}
+                                {new Date(diffDates.latestDate).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            )}
+                          </div>
                           {diffResults.map((result, index) => (
                             <DiffCard
                               key={index}
