@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { JSDOM } from 'jsdom';
+import { parseHTML } from 'linkedom';
 import { Readability } from '@mozilla/readability';
 import crypto from 'crypto';
 
@@ -66,8 +66,10 @@ async function fetchArticleContent(url: string): Promise<{ title: string; conten
     if (!res.ok) return null;
 
     const html = await res.text();
-    const dom = new JSDOM(html, { url });
-    const reader = new Readability(dom.window.document);
+    const { document } = parseHTML(html);
+    // linkedom doesn't set baseURI automatically, set it for Readability
+    Object.defineProperty(document, 'baseURI', { value: url, writable: false });
+    const reader = new Readability(document as unknown as Document);
     const article = reader.parse();
 
     if (!article || !article.textContent || article.textContent.trim().length < 100) {
