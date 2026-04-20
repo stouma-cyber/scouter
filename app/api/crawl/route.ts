@@ -164,12 +164,21 @@ export async function POST(request: Request) {
     const successCount = crawlResults.filter((r) => r.success).length;
     const failCount = crawlResults.filter((r) => !r.success).length;
 
+    // SERP順位一覧を生成
+    const serpList = searchResults.map((r, i) => ({
+      rank: i + 1,
+      title: r.title,
+      url: r.link,
+      crawled: crawlResults.find((cr) => cr.url === r.link)?.success ?? false,
+    }));
+
     return NextResponse.json({
       keyword: kw.keyword,
       totalResults: searchResults.length,
       crawled: successCount,
       failed: failCount,
       results: crawlResults,
+      serp: serpList,
     });
   } catch (err) {
     return NextResponse.json(
