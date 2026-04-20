@@ -4,47 +4,41 @@ import { parseHTML } from 'linkedom';
 import { Readability } from '@mozilla/readability';
 import crypto from 'crypto';
 
-const GOOGLE_API_KEY = process.env.GOOGLE_CUSTOM_SEARCH_API_KEY!;
-const GOOGLE_CX = process.env.GOOGLE_CUSTOM_SEARCH_CX!;
+const SERPER_API_KEY = process.env.SERPER_API_KEY!;
 
 interface SearchResult {
   title: string;
   link: string;
 }
 
-// Google Custom Search APIで上位記事を取得（10件ずつ、最大20件）
+// Serper.dev APIでGoogle検索上位記事を取得（最大20件）
 async function fetchSearchResults(keyword: string): Promise<SearchResult[]> {
-  const results: SearchResult[] = [];
-
-  for (let start = 1; start <= 11; start += 10) {
-    const params = new URLSearchParams({
-      key: GOOGLE_API_KEY,
-      cx: GOOGLE_CX,
+  const res = await fetch('https://google.serper.dev/search', {
+    method: 'POST',
+    headers: {
+      'X-API-KEY': SERPER_API_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
       q: keyword,
-      num: '10',
-      start: String(start),
-      lr: 'lang_ja',
       gl: 'jp',
-    });
+      hl: 'ja',
+      num: 20,
+    }),
+  });
 
-    const res = await fetch(`https://www.googleapis.com/customsearch/v1?${params}`);
-    if (!res.ok) {
-      console.error(`Google API error: ${res.status}`);
-      break;
-    }
-
-    const data = await res.json();
-    if (data.items) {
-      results.push(
-        ...data.items.map((item: { title: string; link: string }) => ({
-          title: item.title,
-          link: item.link,
-        }))
-      );
-    }
+  if (!res.ok) {
+    console.error(`Serper API error: ${res.status}`);
+    return [];
   }
 
-  return results;
+  const data = await res.json();
+  if (!data.organic) return [];
+
+  return data.organic.map((item: { title: string; link: string }) => ({
+    title: item.title,
+    link: item.link,
+  }));
 }
 
 // 記事本文を取得（Readabilityで抽出）
@@ -106,7 +100,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Keyword not found' }, { status: 404 });
     }
 
-    // 1. Google検索上位取得
+    // 1. Google検索上位取得（Serper.dev経由）
     const searchResults = await fetchSearchResults(kw.keyword);
     if (searchResults.length === 0) {
       return NextResponse.json({ error: 'No search results found' }, { status: 404 });
