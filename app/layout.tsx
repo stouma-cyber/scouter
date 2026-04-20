@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'SCOUTER - Website Analysis Tool',
-  description: 'Analyze websites and generate sales proposals automatically',
+  title: 'SEO Reverse - 競合差分分析ツール',
+  description: '競合サイトの変更点を自動検知し、SEO戦略に活用する',
   viewport: 'width=device-width, initial-scale=1',
 };
 
