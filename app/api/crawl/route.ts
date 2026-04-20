@@ -41,8 +41,8 @@ async function fetchSearchResults(keyword: string): Promise<SearchResult[]> {
   }));
 }
 
-// 記事本文を取得（Readabilityで抽出）
-async function fetchArticleContent(url: string): Promise<{ title: string; content: string } | null> {
+// 記事本文と画像を取得（Readabilityで抽出）
+async function fetchArticleContent(url: string): Promise<{ title: string; content: string; images: string[] } | null> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000); // 10秒タイムアウト
@@ -63,6 +63,20 @@ async function fetchArticleContent(url: string): Promise<{ title: string; conten
     const { document } = parseHTML(html);
     // linkedom doesn't set baseURI automatically, set it for Readability
     Object.defineProperty(document, 'baseURI', { value: url, writable: false });
+
+    // 画像URLを抽出（Readability処理前に元DOMから取得）
+    const imgElements = document.querySelectorAll('article img, main img, .entry-content img, .post-content img, #content img, body img');
+    const images: string[] = [];
+    imgElements.forEach((img: Element) => {
+      const src = img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || '';
+      if (src && !src.includes('data:image') && !src.includes('pixel') && !src.includes('spacer')) {
+        try {
+          const absoluteUrl = new URL(src, url).href;
+          if (!images.includes(absoluteUrl)) images.push(absoluteUrl);
+        } catch { /* skip invalid URLs */ }
+      }
+    });
+
     const reader = new Readability(document as unknown as Document);
     const article = reader.parse();
 
@@ -73,6 +87,7 @@ async function fetchArticleContent(url: string): Promise<{ title: string; conten
     return {
       title: article.title || '',
       content: article.textContent.trim(),
+      images,
     };
   } catch {
     console.error(`Failed to fetch: ${url}`);
@@ -149,6 +164,7 @@ export async function POST(request: Request) {
               title: article.title,
               content: article.content,
               content_hash: contentHash,
+              images: article.images,
             });
           }
 
@@ -179,6 +195,7 @@ export async function POST(request: Request) {
       failed: failCount,
       results: crawlResults,
       serp: serpList,
+      crawledAt: new Date().toISOString(),
     });
   } catch (err) {
     return NextResponse.json(

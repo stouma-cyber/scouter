@@ -10,23 +10,45 @@ interface SerpEntry {
   title: string | null;
 }
 
-// テキスト差分を簡易的に抽出（行単位の比較）
+// テキスト差分を抽出（句・節レベルの細かい比較）
 function extractDiff(oldText: string, newText: string): { added: string[]; removed: string[] } {
-  const oldLines = new Set(oldText.split(/[。\n]/).map((l) => l.trim()).filter((l) => l.length > 10));
-  const newLines = new Set(newText.split(/[。\n]/).map((l) => l.trim()).filter((l) => l.length > 10));
+  // 。、\n、！、？、；で分割し、短い句も拾う（最低5文字）
+  const splitText = (text: string) =>
+    text.split(/[。！？\n；\r]+/).map((l) => l.trim()).filter((l) => l.length >= 5);
+
+  const oldChunks = splitText(oldText);
+  const newChunks = splitText(newText);
+
+  const oldSet = new Set(oldChunks);
+  const newSet = new Set(newChunks);
 
   const added: string[] = [];
   const removed: string[] = [];
 
-  newLines.forEach((line) => {
-    if (!oldLines.has(line)) added.push(line);
+  // 完全一致しないものを検出
+  newChunks.forEach((chunk) => {
+    if (!oldSet.has(chunk)) added.push(chunk);
   });
 
-  oldLines.forEach((line) => {
-    if (!newLines.has(line)) removed.push(line);
+  oldChunks.forEach((chunk) => {
+    if (!newSet.has(chunk)) removed.push(chunk);
   });
 
   return { added, removed };
+}
+
+// 画像差分を抽出
+function extractImageDiff(
+  oldImages: string[],
+  newImages: string[]
+): { addedImages: string[]; removedImages: string[] } {
+  const oldSet = new Set(oldImages || []);
+  const newSet = new Set(newImages || []);
+
+  const addedImages = (newImages || []).filter((img) => !oldSet.has(img));
+  const removedImages = (oldImages || []).filter((img) => !newSet.has(img));
+
+  return { addedImages, removedImages };
 }
 
 // Gemini AIで差分の意図を分析
@@ -139,6 +161,8 @@ export async function POST(request: Request) {
       isNewEntry: boolean;
       addedText: string;
       removedText: string;
+      addedImages: string[];
+      removedImages: string[];
       aiAnalysis: string;
     }> = [];
 
@@ -150,16 +174,18 @@ export async function POST(request: Request) {
 
       // 順位が上がった（rankChange > 0）または新規ランクインの場合のみ処理
       if (isNewEntry || (rankChange !== null && rankChange > 0)) {
-        // 本文の差分を取得
+        // 本文・画像の差分を取得
         let addedText = '';
         let removedText = '';
+        let addedImages: string[] = [];
+        let removedImages: string[] = [];
         let aiAnalysis = '';
 
         if (!isNewEntry) {
-          // 既存記事の差分検知
+          // 既存記事の差分検知（本文 + 画像）
           const { data: contents } = await supabase
             .from('article_contents')
-            .select('content, fetched_at')
+            .select('content, images, fetched_at')
             .eq('url', curr.url)
             .order('fetched_at', { ascending: false })
             .limit(2);
@@ -169,44 +195,66 @@ export async function POST(request: Request) {
             addedText = added.join('\n');
             removedText = removed.join('\n');
 
-            if (added.length > 0 || removed.length > 0) {
+            // 画像差分
+            const imgDiff = extractImageDiff(
+              contents[1].images || [],
+              contents[0].images || []
+            );
+            addedImages = imgDiff.addedImages;
+            removedImages = imgDiff.removedImages;
+
+            const hasTextChanges = added.length > 0 || removed.length > 0;
+            const hasImageChanges = addedImages.length > 0 || removedImages.length > 0;
+
+            if (hasTextChanges || hasImageChanges) {
+              // 画像変更情報もAIプロンプトに含める
+              const imageInfo: string[] = [];
+              if (addedImages.length > 0) imageInfo.push(`画像追加: ${addedImages.length}枚`);
+              if (removedImages.length > 0) imageInfo.push(`画像削除: ${removedImages.length}枚`);
+
+              const combinedAdded = [...added];
+              if (imageInfo.length > 0) combinedAdded.push(`【画像変更】${imageInfo.join('、')}`);
+
               aiAnalysis = await analyzeWithAI(
                 kw.keyword,
                 curr.url,
                 `${prev!.rank}位 → ${curr.rank}位（+${rankChange}）`,
-                added,
+                combinedAdded,
                 removed
               );
             } else {
-              aiAnalysis = '本文に変更はありません。被リンク増加やアルゴリズム変動など外部要因の可能性があります。';
+              aiAnalysis = '本文・画像に変更はありません。被リンク増加やアルゴリズム変動など外部要因の可能性があります。';
             }
           }
         } else {
           // 新規ランクイン：記事全体をAIに分析させる
           const { data: content } = await supabase
             .from('article_contents')
-            .select('content')
+            .select('content, images')
             .eq('url', curr.url)
             .order('fetched_at', { ascending: false })
             .limit(1)
             .single();
 
           if (content) {
-            // 長すぎる場合は最初の3000文字だけ送る
             const truncated = content.content.substring(0, 3000);
+            const imageCount = (content.images || []).length;
+            const imageNote = imageCount > 0 ? `\n【画像: ${imageCount}枚含む】` : '';
+
             aiAnalysis = await analyzeWithAI(
               kw.keyword,
               curr.url,
               `新規ランクイン（${curr.rank}位）`,
-              [truncated],
+              [truncated + imageNote],
               []
             );
             addedText = '【新規ランクイン】記事全体が対象';
+            addedImages = content.images || [];
           }
         }
 
-        // 結果をDBに保存
-        await supabase.from('diff_results').insert({
+        // 結果をDBに保存（画像カラムがない場合はフォールバック）
+        const insertData: Record<string, unknown> = {
           keyword_id: keywordId,
           url: curr.url,
           prev_rank: prev?.rank || null,
@@ -214,9 +262,19 @@ export async function POST(request: Request) {
           rank_change: rankChange,
           added_text: addedText,
           removed_text: removedText,
+          added_images: addedImages,
+          removed_images: removedImages,
           ai_analysis: aiAnalysis,
           is_new_entry: isNewEntry,
-        });
+        };
+
+        const { error: insertError } = await supabase.from('diff_results').insert(insertData);
+        if (insertError && insertError.message?.includes('added_images')) {
+          // カラム未追加の場合、画像なしで再試行
+          delete insertData.added_images;
+          delete insertData.removed_images;
+          await supabase.from('diff_results').insert(insertData);
+        }
 
         diffResults.push({
           url: curr.url,
@@ -227,6 +285,8 @@ export async function POST(request: Request) {
           isNewEntry,
           addedText,
           removedText,
+          addedImages,
+          removedImages,
           aiAnalysis,
         });
       }

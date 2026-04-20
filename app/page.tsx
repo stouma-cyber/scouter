@@ -25,6 +25,8 @@ interface DiffResult {
   isNewEntry: boolean;
   addedText: string;
   removedText: string;
+  addedImages: string[];
+  removedImages: string[];
   aiAnalysis: string;
 }
 
@@ -38,6 +40,8 @@ interface SavedDiffResult {
   is_new_entry: boolean;
   added_text: string;
   removed_text: string;
+  added_images: string[] | null;
+  removed_images: string[] | null;
   ai_analysis: string;
   detected_at: string;
 }
@@ -53,6 +57,7 @@ export default function Home() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [crawlResult, setCrawlResult] = useState<{ totalResults: number; crawled: number; failed: number } | null>(null);
   const [serpItems, setSerpItems] = useState<SerpItem[]>([]);
+  const [crawledAt, setCrawledAt] = useState<string | null>(null);
   const [diffResults, setDiffResults] = useState<DiffResult[]>([]);
   const [savedDiffs, setSavedDiffs] = useState<SavedDiffResult[]>([]);
   const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set());
@@ -157,6 +162,7 @@ export default function Home() {
         });
         if (data.serp) {
           setSerpItems(data.serp);
+          setCrawledAt(data.crawledAt || new Date().toISOString());
           setActiveTab('serp');
         }
         setSuccessMsg(`クロール完了: ${data.crawled}件取得`);
@@ -230,6 +236,7 @@ export default function Home() {
     setDiffResults([]);
     setCrawlResult(null);
     setSerpItems([]);
+    setCrawledAt(null);
     setActiveTab('serp');
     fetchSavedDiffs(kw.id);
   };
@@ -458,9 +465,16 @@ export default function Home() {
                         </div>
                       ) : (
                         <div className="space-y-2">
-                          <h2 className="text-sm font-bold text-white mb-3">
-                            Google検索結果 — 「{selectedKeyword.keyword}」
-                          </h2>
+                          <div className="flex items-center justify-between mb-3">
+                            <h2 className="text-sm font-bold text-white">
+                              Google検索結果 — 「{selectedKeyword.keyword}」
+                            </h2>
+                            {crawledAt && (
+                              <span className="text-[11px] text-slate-500 bg-slate-800/50 px-2.5 py-1 rounded-full">
+                                🕐 {new Date(crawledAt).toLocaleString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            )}
+                          </div>
                           {serpItems.map((item) => (
                             <div
                               key={item.rank}
@@ -623,6 +637,30 @@ export default function Home() {
                                       </div>
                                     </div>
                                   )}
+                                  {item.added_images && item.added_images.length > 0 && (
+                                    <div>
+                                      <h4 className="text-xs font-bold text-emerald-400 mb-1.5">+ 追加画像 ({item.added_images.length}枚)</h4>
+                                      <div className="grid grid-cols-3 gap-2">
+                                        {item.added_images.slice(0, 6).map((img: string, i: number) => (
+                                          <a key={i} href={img} target="_blank" rel="noopener noreferrer"
+                                            className="block bg-emerald-500/5 border border-emerald-500/10 rounded-lg overflow-hidden aspect-video hover:border-emerald-500/30 transition-colors">
+                                            <img src={img} alt="" className="w-full h-full object-cover" loading="lazy"
+                                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                                          </a>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {item.removed_images && item.removed_images.length > 0 && (
+                                    <div>
+                                      <h4 className="text-xs font-bold text-red-400 mb-1.5">- 削除画像 ({item.removed_images.length}枚)</h4>
+                                      <div className="space-y-1">
+                                        {item.removed_images.slice(0, 3).map((img: string, i: number) => (
+                                          <p key={i} className="text-[10px] text-red-400/60 truncate">{img}</p>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
                                   {item.ai_analysis && (
                                     <div>
                                       <h4 className="text-xs font-bold text-cyan-400 mb-1.5">🧠 AI分析</h4>
@@ -741,6 +779,43 @@ function DiffCard({
               </h4>
               <div className="bg-red-500/5 border border-red-500/10 rounded-lg p-3 text-xs text-slate-300 whitespace-pre-wrap max-h-40 overflow-y-auto">
                 {result.removedText}
+              </div>
+            </div>
+          )}
+          {result.addedImages && result.addedImages.length > 0 && (
+            <div>
+              <h4 className="text-xs font-bold text-emerald-400 mb-2 flex items-center gap-1">
+                <span>+</span> 追加された画像 ({result.addedImages.length}枚)
+              </h4>
+              <div className="grid grid-cols-3 gap-2">
+                {result.addedImages.slice(0, 6).map((img, i) => (
+                  <a key={i} href={img} target="_blank" rel="noopener noreferrer"
+                    className="block bg-emerald-500/5 border border-emerald-500/10 rounded-lg overflow-hidden aspect-video hover:border-emerald-500/30 transition-colors">
+                    <img src={img} alt="" className="w-full h-full object-cover" loading="lazy"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                  </a>
+                ))}
+              </div>
+              {result.addedImages.length > 6 && (
+                <p className="text-[10px] text-slate-500 mt-1">他 {result.addedImages.length - 6}枚</p>
+              )}
+            </div>
+          )}
+          {result.removedImages && result.removedImages.length > 0 && (
+            <div>
+              <h4 className="text-xs font-bold text-red-400 mb-2 flex items-center gap-1">
+                <span>-</span> 削除された画像 ({result.removedImages.length}枚)
+              </h4>
+              <div className="space-y-1">
+                {result.removedImages.slice(0, 5).map((img, i) => (
+                  <a key={i} href={img} target="_blank" rel="noopener noreferrer"
+                    className="block text-[10px] text-red-400/60 hover:text-red-400 truncate transition-colors">
+                    {img}
+                  </a>
+                ))}
+                {result.removedImages.length > 5 && (
+                  <p className="text-[10px] text-slate-500">他 {result.removedImages.length - 5}件</p>
+                )}
               </div>
             </div>
           )}
