@@ -546,17 +546,33 @@ export default function Home() {
                         </div>
                       ) : (
                         <div className="space-y-4">
-                          <div className="flex items-center justify-between mb-1">
-                            <h2 className="text-sm font-bold text-white">
-                              差分検知結果 ({diffResults.length}件)
-                            </h2>
-                            {diffDates && (
-                              <span className="text-[11px] text-slate-500 bg-slate-800/50 px-2.5 py-1 rounded-full">
-                                🕐 {new Date(diffDates.prevDate).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                                {' → '}
-                                {new Date(diffDates.latestDate).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                          {/* サマリーヘッダー */}
+                          <div className="bg-slate-800/40 border border-slate-700/30 rounded-xl p-4">
+                            <div className="flex items-center justify-between mb-3">
+                              <h2 className="text-sm font-bold text-white">
+                                差分検知結果
+                              </h2>
+                              {diffDates && (
+                                <span className="text-[11px] text-slate-500 bg-slate-900/50 px-2.5 py-1 rounded-full">
+                                  {new Date(diffDates.prevDate).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                  {' → '}
+                                  {new Date(diffDates.latestDate).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 text-xs">
+                              <span className="text-slate-400">
+                                順位上昇: <span className="text-emerald-400 font-bold">{diffResults.filter(r => !r.isNewEntry).length}件</span>
                               </span>
-                            )}
+                              <span className="w-1 h-1 rounded-full bg-slate-700"></span>
+                              <span className="text-slate-400">
+                                新規ランクイン: <span className="text-amber-400 font-bold">{diffResults.filter(r => r.isNewEntry).length}件</span>
+                              </span>
+                              <span className="w-1 h-1 rounded-full bg-slate-700"></span>
+                              <span className="text-slate-400">
+                                コンテンツ変更あり: <span className="text-violet-400 font-bold">{diffResults.filter(r => r.addedText || r.removedText || (r.addedImages?.length > 0)).length}件</span>
+                              </span>
+                            </div>
                           </div>
                           {diffResults.map((result, index) => (
                             <DiffCard
@@ -721,6 +737,17 @@ export default function Home() {
   );
 }
 
+// 変更タイプを判定するヘルパー
+function getChangeType(result: DiffResult): { label: string; color: string; icon: string } {
+  if (result.isNewEntry) return { label: '新規', icon: '🆕', color: 'amber' };
+  const hasText = !!(result.addedText || result.removedText);
+  const hasImages = (result.addedImages?.length > 0 || result.removedImages?.length > 0);
+  if (hasText && hasImages) return { label: 'テキスト+画像変更', icon: '📝', color: 'violet' };
+  if (hasText) return { label: 'テキスト変更', icon: '📝', color: 'emerald' };
+  if (hasImages) return { label: '画像変更', icon: '🖼️', color: 'blue' };
+  return { label: '外部要因', icon: '🔗', color: 'slate' };
+}
+
 // Diff結果カードコンポーネント
 function DiffCard({
   result,
@@ -731,37 +758,53 @@ function DiffCard({
   isExpanded: boolean;
   onToggle: () => void;
 }) {
+  const changeType = getChangeType(result);
+  const hasAnyContent = !!(
+    result.addedText || result.removedText || result.aiAnalysis ||
+    (result.addedImages && result.addedImages.length > 0) ||
+    (result.removedImages && result.removedImages.length > 0)
+  );
+
   return (
-    <div className="bg-slate-800/30 border border-slate-700/30 rounded-2xl overflow-hidden">
+    <div className={`bg-slate-800/30 border rounded-2xl overflow-hidden transition-all ${
+      isExpanded ? 'border-slate-600/40 shadow-lg shadow-black/20' : 'border-slate-700/30'
+    }`}>
       <div
         onClick={onToggle}
         className="p-5 cursor-pointer hover:bg-slate-800/50 transition-colors"
       >
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
+            {/* 順位変動 + 変更タイプ */}
+            <div className="flex items-center gap-2 mb-2 flex-wrap">
               {result.isNewEntry ? (
-                <span className="px-2 py-0.5 bg-amber-500/10 text-amber-400 text-[10px] font-bold rounded-full border border-amber-500/20">
-                  NEW
+                <span className="px-2.5 py-1 bg-amber-500/15 text-amber-400 text-[11px] font-bold rounded-lg border border-amber-500/20">
+                  NEW — {result.currRank}位
                 </span>
               ) : (
-                <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 text-[10px] font-bold rounded-full border border-emerald-500/20">
-                  UP +{result.rankChange}
+                <span className="px-2.5 py-1 bg-emerald-500/15 text-emerald-400 text-[11px] font-bold rounded-lg border border-emerald-500/20">
+                  ↑ {result.prevRank}位 → {result.currRank}位
+                  <span className="ml-1 opacity-70">(+{result.rankChange})</span>
                 </span>
               )}
-              <span className="text-xs text-slate-500">
-                {result.isNewEntry
-                  ? `${result.currRank}位にランクイン`
-                  : `${result.prevRank}位 → ${result.currRank}位`}
+              <span className={`px-2 py-0.5 text-[10px] font-medium rounded-md ${
+                changeType.color === 'emerald' ? 'bg-emerald-500/10 text-emerald-400/80 border border-emerald-500/15' :
+                changeType.color === 'violet' ? 'bg-violet-500/10 text-violet-400/80 border border-violet-500/15' :
+                changeType.color === 'blue' ? 'bg-blue-500/10 text-blue-400/80 border border-blue-500/15' :
+                changeType.color === 'amber' ? 'bg-amber-500/10 text-amber-400/80 border border-amber-500/15' :
+                'bg-slate-700/30 text-slate-400/80 border border-slate-600/20'
+              }`}>
+                {changeType.icon} {changeType.label}
               </span>
             </div>
-            <p className="text-sm text-white font-medium truncate">
+            {/* タイトル */}
+            <p className="text-[13px] text-white font-medium leading-snug mb-1">
               {result.title || result.url}
             </p>
-            <p className="text-xs text-slate-500 truncate mt-1">{result.url}</p>
+            <p className="text-[11px] text-cyan-400/50 truncate">{result.url}</p>
           </div>
           <svg
-            className={`w-5 h-5 text-slate-500 transition-transform flex-shrink-0 ${
+            className={`w-5 h-5 text-slate-500 transition-transform flex-shrink-0 mt-1 ${
               isExpanded ? 'rotate-180' : ''
             }`}
             viewBox="0 0 24 24"
@@ -776,30 +819,66 @@ function DiffCard({
 
       {isExpanded && (
         <div className="border-t border-slate-700/30 p-5 space-y-4">
+          {/* テキスト差分がない場合の説明 */}
+          {!hasAnyContent && (
+            <div className="bg-slate-700/20 border border-slate-600/20 rounded-xl p-4">
+              <div className="flex items-start gap-3">
+                <span className="text-lg mt-0.5">🔗</span>
+                <div>
+                  <h4 className="text-xs font-bold text-slate-300 mb-1">本文・画像に変更なし</h4>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    記事コンテンツの変更は検出されませんでした。順位変動の原因として以下が考えられます：
+                  </p>
+                  <ul className="mt-2 space-y-1">
+                    <li className="text-[11px] text-slate-400 flex items-center gap-2">
+                      <span className="w-1 h-1 rounded-full bg-slate-500 flex-shrink-0"></span>
+                      被リンク（バックリンク）の増加
+                    </li>
+                    <li className="text-[11px] text-slate-400 flex items-center gap-2">
+                      <span className="w-1 h-1 rounded-full bg-slate-500 flex-shrink-0"></span>
+                      Googleアルゴリズムの変動
+                    </li>
+                    <li className="text-[11px] text-slate-400 flex items-center gap-2">
+                      <span className="w-1 h-1 rounded-full bg-slate-500 flex-shrink-0"></span>
+                      競合ページの順位低下による相対的な上昇
+                    </li>
+                    <li className="text-[11px] text-slate-400 flex items-center gap-2">
+                      <span className="w-1 h-1 rounded-full bg-slate-500 flex-shrink-0"></span>
+                      内部リンク構造の変化
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
+
           {result.addedText && (
             <div>
-              <h4 className="text-xs font-bold text-emerald-400 mb-2 flex items-center gap-1">
-                <span>+</span> 追加されたコンテンツ
+              <h4 className="text-xs font-bold text-emerald-400 mb-2 flex items-center gap-1.5">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14m-7-7h14"/></svg>
+                追加されたコンテンツ
               </h4>
-              <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-lg p-3 text-xs text-slate-300 whitespace-pre-wrap max-h-40 overflow-y-auto">
+              <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-lg p-3 text-xs text-slate-300 whitespace-pre-wrap max-h-40 overflow-y-auto leading-relaxed">
                 {result.addedText}
               </div>
             </div>
           )}
           {result.removedText && (
             <div>
-              <h4 className="text-xs font-bold text-red-400 mb-2 flex items-center gap-1">
-                <span>-</span> 削除されたコンテンツ
+              <h4 className="text-xs font-bold text-red-400 mb-2 flex items-center gap-1.5">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14"/></svg>
+                削除されたコンテンツ
               </h4>
-              <div className="bg-red-500/5 border border-red-500/10 rounded-lg p-3 text-xs text-slate-300 whitespace-pre-wrap max-h-40 overflow-y-auto">
+              <div className="bg-red-500/5 border border-red-500/10 rounded-lg p-3 text-xs text-slate-300 whitespace-pre-wrap max-h-40 overflow-y-auto leading-relaxed">
                 {result.removedText}
               </div>
             </div>
           )}
           {result.addedImages && result.addedImages.length > 0 && (
             <div>
-              <h4 className="text-xs font-bold text-emerald-400 mb-2 flex items-center gap-1">
-                <span>+</span> 追加された画像 ({result.addedImages.length}枚)
+              <h4 className="text-xs font-bold text-emerald-400 mb-2 flex items-center gap-1.5">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+                追加された画像 ({result.addedImages.length}枚)
               </h4>
               <div className="grid grid-cols-3 gap-2">
                 {result.addedImages.slice(0, 6).map((img, i) => (
@@ -817,8 +896,9 @@ function DiffCard({
           )}
           {result.removedImages && result.removedImages.length > 0 && (
             <div>
-              <h4 className="text-xs font-bold text-red-400 mb-2 flex items-center gap-1">
-                <span>-</span> 削除された画像 ({result.removedImages.length}枚)
+              <h4 className="text-xs font-bold text-red-400 mb-2 flex items-center gap-1.5">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m9 9 6 6m0-6-6 6"/></svg>
+                削除された画像 ({result.removedImages.length}枚)
               </h4>
               <div className="space-y-1">
                 {result.removedImages.slice(0, 5).map((img, i) => (
@@ -835,22 +915,26 @@ function DiffCard({
           )}
           {result.aiAnalysis && (
             <div>
-              <h4 className="text-xs font-bold text-cyan-400 mb-2 flex items-center gap-1">
-                <span>🧠</span> AI分析レポート
+              <h4 className="text-xs font-bold text-cyan-400 mb-2 flex items-center gap-1.5">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93"/><path d="M8 6a4 4 0 0 1 8 0"/><path d="M12 18v4"/><path d="M8 22h8"/><circle cx="12" cy="14" r="4"/></svg>
+                AI分析レポート
               </h4>
               <div className="bg-cyan-500/5 border border-cyan-500/10 rounded-lg p-4 text-xs text-slate-300 whitespace-pre-wrap leading-relaxed">
                 {result.aiAnalysis}
               </div>
             </div>
           )}
-          <a
-            href={result.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 transition-colors"
-          >
-            記事を開く ↗
-          </a>
+          <div className="pt-1">
+            <a
+              href={result.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300 transition-colors bg-cyan-500/5 hover:bg-cyan-500/10 px-3 py-1.5 rounded-lg border border-cyan-500/10"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              記事を開く
+            </a>
+          </div>
         </div>
       )}
     </div>
