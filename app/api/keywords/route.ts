@@ -26,6 +26,9 @@ export async function POST(request: Request) {
     if (!keyword || typeof keyword !== 'string') {
       return NextResponse.json({ error: 'keyword is required' }, { status: 400 });
     }
+    if (keyword.trim().length > 100) {
+      return NextResponse.json({ error: 'キーワードは100文字以内にしてください' }, { status: 400 });
+    }
 
     const { data, error } = await supabase
       .from('keywords')

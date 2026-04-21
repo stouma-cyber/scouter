@@ -165,7 +165,7 @@ export default function Home() {
   };
 
   const runCrawl = async () => {
-    if (!selectedKeyword) return;
+    if (!selectedKeyword || isCrawling) return; // 二重実行防止
     setIsCrawling(true);
     setError('');
     setCrawlResult(null);
@@ -195,15 +195,18 @@ export default function Home() {
       } else {
         setError(data.error || 'クロールに失敗しました');
       }
-    } catch {
-      setError('クロールの実行に失敗しました');
+    } catch (err) {
+      const msg = err instanceof Error && err.message.includes('Failed to fetch')
+        ? 'サーバーに接続できません。Vercelの10秒タイムアウトの可能性があります。もう一度お試しください。'
+        : 'クロールの実行に失敗しました。しばらく待ってからお試しください。';
+      setError(msg);
     } finally {
       setIsCrawling(false);
     }
   };
 
   const runDiff = async (overrideDateA?: string, overrideDateB?: string) => {
-    if (!selectedKeyword) return;
+    if (!selectedKeyword || isAnalyzing) return; // 二重実行防止
     setIsAnalyzing(true);
     setError('');
     setDiffResults([]);
@@ -243,8 +246,11 @@ export default function Home() {
       } else {
         setError(data.error || '差分検知に失敗しました');
       }
-    } catch {
-      setError('差分検知の実行に失敗しました');
+    } catch (err) {
+      const msg = err instanceof Error && err.message.includes('Failed to fetch')
+        ? '差分検知がタイムアウトしました。記事数が多い場合は「順位上昇のみ」モードをお試しください。'
+        : '差分検知の実行に失敗しました。しばらく待ってからお試しください。';
+      setError(msg);
     } finally {
       setIsAnalyzing(false);
     }

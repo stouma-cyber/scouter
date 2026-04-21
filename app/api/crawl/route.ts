@@ -5,6 +5,8 @@ import { Readability } from '@mozilla/readability';
 import crypto from 'crypto';
 
 const SERPER_API_KEY = process.env.SERPER_API_KEY!;
+const MAX_CRAWL_ARTICLES = 10; // Vercel Hobby 10秒制限対策: クロール対象を制限
+const FETCH_TIMEOUT_MS = 5000; // 記事取得のタイムアウト（5秒）
 
 interface SearchResult {
   title: string;
@@ -13,39 +15,48 @@ interface SearchResult {
 
 // Serper.dev APIでGoogle検索上位記事を取得（最大20件）
 async function fetchSearchResults(keyword: string): Promise<SearchResult[]> {
-  const res = await fetch('https://google.serper.dev/search', {
-    method: 'POST',
-    headers: {
-      'X-API-KEY': SERPER_API_KEY,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      q: keyword,
-      gl: 'jp',
-      hl: 'ja',
-      num: 20,
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
 
-  if (!res.ok) {
-    console.error(`Serper API error: ${res.status}`);
-    return [];
+  try {
+    const res = await fetch('https://google.serper.dev/search', {
+      method: 'POST',
+      headers: {
+        'X-API-KEY': SERPER_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        q: keyword,
+        gl: 'jp',
+        hl: 'ja',
+        num: 20,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      throw new Error(`Serper API error: ${res.status} ${res.statusText}`);
+    }
+
+    const data = await res.json();
+    if (!data.organic) return [];
+
+    return data.organic.map((item: { title: string; link: string }) => ({
+      title: item.title,
+      link: item.link,
+    }));
+  } catch (err) {
+    clearTimeout(timeout);
+    throw new Error(`検索結果の取得に失敗しました: ${err instanceof Error ? err.message : 'Unknown error'}`);
   }
-
-  const data = await res.json();
-  if (!data.organic) return [];
-
-  return data.organic.map((item: { title: string; link: string }) => ({
-    title: item.title,
-    link: item.link,
-  }));
 }
 
 // 記事本文と画像を取得（Readabilityで抽出）
 async function fetchArticleContent(url: string): Promise<{ title: string; content: string; images: string[] } | null> {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000); // 10秒タイムアウト
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
     const res = await fetch(url, {
       signal: controller.signal,
@@ -137,45 +148,65 @@ export async function POST(request: Request) {
       console.error('SERP save error:', serpError);
     }
 
-    // 3. 本文クローリング（5記事ずつ処理）
-    const crawlResults: { url: string; success: boolean }[] = [];
-    const batchSize = 5;
+    // 3. 本文クローリング（3記事ずつ処理、上位MAX_CRAWL_ARTICLES件のみ）
+    const crawlTargets = searchResults.slice(0, MAX_CRAWL_ARTICLES);
+    const crawlResults: { url: string; success: boolean; error?: string }[] = [];
+    const batchSize = 3;
 
-    for (let i = 0; i < searchResults.length; i += batchSize) {
-      const batch = searchResults.slice(i, i + batchSize);
+    for (let i = 0; i < crawlTargets.length; i += batchSize) {
+      const batch = crawlTargets.slice(i, i + batchSize);
       const promises = batch.map(async (result) => {
-        const article = await fetchArticleContent(result.link);
-        if (article) {
-          const contentHash = hashContent(article.content);
+        try {
+          const article = await fetchArticleContent(result.link);
+          if (article) {
+            const contentHash = hashContent(article.content);
 
-          // 同じURLの最新本文と比較し、変更があれば保存
-          const { data: existing } = await supabase
-            .from('article_contents')
-            .select('content_hash')
-            .eq('url', result.link)
-            .order('fetched_at', { ascending: false })
-            .limit(1)
-            .single();
+            // 同じURLの最新本文と比較し、変更があれば保存
+            const { data: existing } = await supabase
+              .from('article_contents')
+              .select('content_hash')
+              .eq('url', result.link)
+              .order('fetched_at', { ascending: false })
+              .limit(1)
+              .single();
 
-          // 新規 or 内容が変わっていれば保存
-          if (!existing || existing.content_hash !== contentHash) {
-            await supabase.from('article_contents').insert({
-              url: result.link,
-              title: article.title,
-              content: article.content,
-              content_hash: contentHash,
-              images: article.images,
-            });
+            // 新規 or 内容が変わっていれば保存
+            if (!existing || existing.content_hash !== contentHash) {
+              const { error: insertErr } = await supabase.from('article_contents').insert({
+                url: result.link,
+                title: article.title,
+                content: article.content,
+                content_hash: contentHash,
+                images: article.images,
+              });
+              if (insertErr) {
+                console.error(`DB insert error for ${result.link}:`, insertErr.message);
+              }
+            }
+
+            return { url: result.link, success: true };
           }
-
-          return { url: result.link, success: true };
+          return { url: result.link, success: false, error: '記事本文の抽出に失敗' };
+        } catch (err) {
+          return { url: result.link, success: false, error: err instanceof Error ? err.message : 'Unknown error' };
         }
-        return { url: result.link, success: false };
       });
 
-      const results = await Promise.all(promises);
-      crawlResults.push(...results);
+      const results = await Promise.allSettled(promises);
+      results.forEach((r) => {
+        if (r.status === 'fulfilled') {
+          crawlResults.push(r.value);
+        }
+      });
     }
+
+    // クロールしなかった記事もリストに追加（SERP保存はしてある）
+    const skippedResults = searchResults.slice(MAX_CRAWL_ARTICLES).map((r) => ({
+      url: r.link,
+      success: false,
+      error: 'クロール対象外（上位10件のみ取得）',
+    }));
+    crawlResults.push(...skippedResults);
 
     const successCount = crawlResults.filter((r) => r.success).length;
     const failCount = crawlResults.filter((r) => !r.success).length;

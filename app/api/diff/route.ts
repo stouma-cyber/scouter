@@ -81,6 +81,12 @@ KW:${keyword} URL:${url} 変動:${rankChange}
   }
 }
 
+// 日付フォーマットの簡易バリデーション
+function isValidDateString(dateStr: string): boolean {
+  const d = new Date(dateStr);
+  return !isNaN(d.getTime());
+}
+
 // POST: 差分検知＋AI分析を実行
 // パラメータ:
 //   keywordId: キーワードID（必須）
@@ -92,6 +98,20 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { keywordId, dateA, dateB, mode = 'all' } = body;
 
+    // 入力値バリデーション
+    if (!keywordId || typeof keywordId !== 'string') {
+      return NextResponse.json({ error: 'keywordIdは必須です' }, { status: 400 });
+    }
+    if (mode && !['all', 'rank-up'].includes(mode)) {
+      return NextResponse.json({ error: 'modeは "all" または "rank-up" を指定してください' }, { status: 400 });
+    }
+    if (dateA && !isValidDateString(dateA)) {
+      return NextResponse.json({ error: '比較元の日付フォーマットが不正です' }, { status: 400 });
+    }
+    if (dateB && !isValidDateString(dateB)) {
+      return NextResponse.json({ error: '比較先の日付フォーマットが不正です' }, { status: 400 });
+    }
+
     // キーワード取得
     const { data: kw, error: kwError } = await supabase
       .from('keywords')
@@ -100,7 +120,7 @@ export async function POST(request: Request) {
       .single();
 
     if (kwError || !kw) {
-      return NextResponse.json({ error: 'Keyword not found' }, { status: 404 });
+      return NextResponse.json({ error: 'キーワードが見つかりません' }, { status: 404 });
     }
 
     // クロール日時を決定
