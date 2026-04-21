@@ -21,15 +21,8 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="bg-gradient-to-br from-primary via-slate-900 to-primary">
+      <body className="bg-gray-50 min-h-screen">
         <div className="relative min-h-screen">
-          {/* Background effect */}
-          <div className="fixed inset-0 opacity-10 pointer-events-none">
-            <div className="absolute top-0 left-1/4 w-96 h-96 bg-accent rounded-full filter blur-3xl mix-blend-screen"></div>
-            <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-blue-500 rounded-full filter blur-3xl mix-blend-screen"></div>
-          </div>
-
-          {/* Content */}
           <div className="relative z-10">
             {children}
           </div>
