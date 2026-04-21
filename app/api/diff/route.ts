@@ -12,7 +12,6 @@ interface SerpEntry {
 
 // テキスト差分を抽出（句・節レベルの細かい比較）
 function extractDiff(oldText: string, newText: string): { added: string[]; removed: string[] } {
-  // 。、\n、！、？、；で分割し、短い句も拾う（最低5文字）
   const splitText = (text: string) =>
     text.split(/[。！？\n；\r]+/).map((l) => l.trim()).filter((l) => l.length >= 5);
 
@@ -25,7 +24,6 @@ function extractDiff(oldText: string, newText: string): { added: string[]; remov
   const added: string[] = [];
   const removed: string[] = [];
 
-  // 完全一致しないものを検出
   newChunks.forEach((chunk) => {
     if (!oldSet.has(chunk)) added.push(chunk);
   });
@@ -51,7 +49,7 @@ function extractImageDiff(
   return { addedImages, removedImages };
 }
 
-// Gemini AIで差分の意図を分析（軽量版・タイムアウト対策）
+// Gemini AIで差分の意図を分析
 async function analyzeWithAI(
   keyword: string,
   url: string,
@@ -62,7 +60,6 @@ async function analyzeWithAI(
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
-    // テキストを最大500文字に制限
     const addedTrimmed = added.join('\n').substring(0, 500);
     const removedTrimmed = removed.join('\n').substring(0, 500);
 
@@ -84,10 +81,16 @@ KW:${keyword} URL:${url} 変動:${rankChange}
   }
 }
 
-// POST: キーワードIDを受け取り、差分検知＋AI分析を実行
+// POST: 差分検知＋AI分析を実行
+// パラメータ:
+//   keywordId: キーワードID（必須）
+//   dateA: 比較元の日時（古い方）。省略時は前回クロール日
+//   dateB: 比較先の日時（新しい方）。省略時は最新クロール日
+//   mode: 'all' | 'rank-up'（デフォルト: 'all'）
 export async function POST(request: Request) {
   try {
-    const { keywordId } = await request.json();
+    const body = await request.json();
+    const { keywordId, dateA, dateB, mode = 'all' } = body;
 
     // キーワード取得
     const { data: kw, error: kwError } = await supabase
@@ -100,29 +103,38 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Keyword not found' }, { status: 404 });
     }
 
-    // 最新2回分のSERPスナップショットの日時を取得
-    const { data: dates } = await supabase
-      .from('serp_snapshots')
-      .select('observed_at')
-      .eq('keyword_id', keywordId)
-      .order('observed_at', { ascending: false });
+    // クロール日時を決定
+    let prevDate: string;
+    let latestDate: string;
 
-    if (!dates || dates.length === 0) {
-      return NextResponse.json({ error: 'No SERP data found. Run crawl first.' }, { status: 404 });
+    if (dateA && dateB) {
+      // 日付が指定されている場合はそのまま使う
+      prevDate = dateA;
+      latestDate = dateB;
+    } else {
+      // 最新2回分のSERPスナップショットの日時を自動取得
+      const { data: dates } = await supabase
+        .from('serp_snapshots')
+        .select('observed_at')
+        .eq('keyword_id', keywordId)
+        .order('observed_at', { ascending: false });
+
+      if (!dates || dates.length === 0) {
+        return NextResponse.json({ error: 'クロールデータがありません。先にクロールを実行してください。' }, { status: 404 });
+      }
+
+      const uniqueDates = [...new Set(dates.map((d) => d.observed_at))];
+      if (uniqueDates.length < 2) {
+        return NextResponse.json({
+          error: 'データが1回分しかありません。もう1回クロールを実行してから差分検知してください。',
+        }, { status: 400 });
+      }
+
+      latestDate = uniqueDates[0];
+      prevDate = uniqueDates[1];
     }
 
-    // ユニークな観測日時を取得
-    const uniqueDates = [...new Set(dates.map((d) => d.observed_at))];
-    if (uniqueDates.length < 2) {
-      return NextResponse.json({
-        error: 'データが1回分しかありません。もう1回クロールを実行してから差分検知してください。',
-      }, { status: 400 });
-    }
-
-    const latestDate = uniqueDates[0];
-    const prevDate = uniqueDates[1];
-
-    // 最新と前回のSERPデータを取得
+    // 両日のSERPデータを取得
     const { data: latestSerp } = await supabase
       .from('serp_snapshots')
       .select('url, rank, title')
@@ -136,7 +148,7 @@ export async function POST(request: Request) {
       .eq('observed_at', prevDate);
 
     if (!latestSerp || !prevSerp) {
-      return NextResponse.json({ error: 'Failed to fetch SERP data' }, { status: 500 });
+      return NextResponse.json({ error: 'SERPデータの取得に失敗しました' }, { status: 500 });
     }
 
     const prevMap = new Map<string, SerpEntry>();
@@ -149,6 +161,7 @@ export async function POST(request: Request) {
       currRank: number;
       rankChange: number | null;
       isNewEntry: boolean;
+      hasContentChange: boolean;
       addedText: string;
       removedText: string;
       addedImages: string[];
@@ -156,48 +169,63 @@ export async function POST(request: Request) {
       aiAnalysis: string;
     }> = [];
 
-    // 順位が上がった記事 + 新規ランクインを検出
+    let aiAnalyzedCount = 0;
+
     for (const curr of latestSerp as SerpEntry[]) {
       const prev = prevMap.get(curr.url);
       const isNewEntry = !prev;
       const rankChange = prev ? prev.rank - curr.rank : null;
 
-      // 順位が上がった（rankChange > 0）または新規ランクインの場合のみ処理
-      if (isNewEntry || (rankChange !== null && rankChange > 0)) {
-        // 本文・画像の差分を取得
-        let addedText = '';
-        let removedText = '';
-        let addedImages: string[] = [];
-        let removedImages: string[] = [];
-        let aiAnalysis = '';
+      // モードによるフィルタリング
+      if (mode === 'rank-up') {
+        // 従来モード: 順位上昇 or 新規のみ
+        if (!isNewEntry && (rankChange === null || rankChange <= 0)) continue;
+      }
+      // mode === 'all' の場合はすべての記事を処理
 
-        if (!isNewEntry) {
-          // 既存記事の差分検知（本文 + 画像）
-          const { data: contents } = await supabase
-            .from('article_contents')
-            .select('content, images, fetched_at')
-            .eq('url', curr.url)
-            .order('fetched_at', { ascending: false })
-            .limit(2);
+      let addedText = '';
+      let removedText = '';
+      let addedImages: string[] = [];
+      let removedImages: string[] = [];
+      let aiAnalysis = '';
+      let hasContentChange = false;
 
-          if (contents && contents.length >= 2) {
-            const { added, removed } = extractDiff(contents[1].content, contents[0].content);
+      if (!isNewEntry) {
+        // 記事コンテンツの差分検知
+        // 指定日付に近いコンテンツを取得
+        const { data: newContent } = await supabase
+          .from('article_contents')
+          .select('content, images, fetched_at')
+          .eq('url', curr.url)
+          .lte('fetched_at', latestDate)
+          .order('fetched_at', { ascending: false })
+          .limit(1);
+
+        const { data: oldContent } = await supabase
+          .from('article_contents')
+          .select('content, images, fetched_at')
+          .eq('url', curr.url)
+          .lte('fetched_at', prevDate)
+          .order('fetched_at', { ascending: false })
+          .limit(1);
+
+        if (newContent && newContent.length > 0 && oldContent && oldContent.length > 0) {
+          // 同じコンテンツでないことを確認
+          if (newContent[0].fetched_at !== oldContent[0].fetched_at) {
+            const { added, removed } = extractDiff(oldContent[0].content, newContent[0].content);
             addedText = added.join('\n');
             removedText = removed.join('\n');
 
-            // 画像差分
             const imgDiff = extractImageDiff(
-              contents[1].images || [],
-              contents[0].images || []
+              oldContent[0].images || [],
+              newContent[0].images || []
             );
             addedImages = imgDiff.addedImages;
             removedImages = imgDiff.removedImages;
 
-            const hasTextChanges = added.length > 0 || removed.length > 0;
-            const hasImageChanges = addedImages.length > 0 || removedImages.length > 0;
+            hasContentChange = added.length > 0 || removed.length > 0 || addedImages.length > 0 || removedImages.length > 0;
 
-            if (hasTextChanges || hasImageChanges) {
-              // 画像変更情報もAIプロンプトに含める
+            if (hasContentChange && aiAnalyzedCount === 0) {
               const imageInfo: string[] = [];
               if (addedImages.length > 0) imageInfo.push(`画像追加: ${addedImages.length}枚`);
               if (removedImages.length > 0) imageInfo.push(`画像削除: ${removedImages.length}枚`);
@@ -205,98 +233,98 @@ export async function POST(request: Request) {
               const combinedAdded = [...added];
               if (imageInfo.length > 0) combinedAdded.push(`【画像変更】${imageInfo.join('、')}`);
 
-              // AI分析は最初の1件だけ実行（タイムアウト対策）
-              if (diffResults.length === 0) {
-                aiAnalysis = await analyzeWithAI(
-                  kw.keyword,
-                  curr.url,
-                  `${prev!.rank}位 → ${curr.rank}位（+${rankChange}）`,
-                  combinedAdded,
-                  removed
-                );
-              } else {
-                aiAnalysis = '（AI分析は1件目のみ自動実行。個別分析は今後対応予定）';
-              }
-            } else {
-              aiAnalysis = '本文・画像に変更はありません。被リンク増加やアルゴリズム変動など外部要因の可能性があります。';
-            }
-          }
-        } else {
-          // 新規ランクイン：記事全体をAIに分析させる
-          const { data: content } = await supabase
-            .from('article_contents')
-            .select('content, images')
-            .eq('url', curr.url)
-            .order('fetched_at', { ascending: false })
-            .limit(1)
-            .single();
+              const rankInfo = rankChange !== null
+                ? `${prev!.rank}位 → ${curr.rank}位（${rankChange > 0 ? '+' : ''}${rankChange}）`
+                : `${curr.rank}位（変動なし）`;
 
-          if (content) {
-            // AI分析は最初の1件だけ実行（タイムアウト対策）
-            if (diffResults.length === 0) {
-              const truncated = content.content.substring(0, 500);
-              const imageCount = (content.images || []).length;
-              const imageNote = imageCount > 0 ? `\n【画像: ${imageCount}枚含む】` : '';
-
-              aiAnalysis = await analyzeWithAI(
-                kw.keyword,
-                curr.url,
-                `新規ランクイン（${curr.rank}位）`,
-                [truncated + imageNote],
-                []
-              );
-            } else {
+              aiAnalysis = await analyzeWithAI(kw.keyword, curr.url, rankInfo, combinedAdded, removed);
+              aiAnalyzedCount++;
+            } else if (hasContentChange) {
               aiAnalysis = '（AI分析は1件目のみ自動実行）';
             }
-            addedText = '【新規ランクイン】記事全体が対象';
-            addedImages = content.images || [];
           }
         }
+      } else {
+        // 新規ランクイン
+        hasContentChange = true;
+        const { data: content } = await supabase
+          .from('article_contents')
+          .select('content, images')
+          .eq('url', curr.url)
+          .order('fetched_at', { ascending: false })
+          .limit(1)
+          .single();
 
-        // 結果をDBに保存（画像カラムがない場合はフォールバック）
-        const insertData: Record<string, unknown> = {
-          keyword_id: keywordId,
-          url: curr.url,
-          prev_rank: prev?.rank || null,
-          curr_rank: curr.rank,
-          rank_change: rankChange,
-          added_text: addedText,
-          removed_text: removedText,
-          added_images: addedImages,
-          removed_images: removedImages,
-          ai_analysis: aiAnalysis,
-          is_new_entry: isNewEntry,
-        };
+        if (content) {
+          if (aiAnalyzedCount === 0) {
+            const truncated = content.content.substring(0, 500);
+            const imageCount = (content.images || []).length;
+            const imageNote = imageCount > 0 ? `\n【画像: ${imageCount}枚含む】` : '';
 
-        const { error: insertError } = await supabase.from('diff_results').insert(insertData);
-        if (insertError && insertError.message?.includes('added_images')) {
-          // カラム未追加の場合、画像なしで再試行
-          delete insertData.added_images;
-          delete insertData.removed_images;
-          await supabase.from('diff_results').insert(insertData);
+            aiAnalysis = await analyzeWithAI(
+              kw.keyword, curr.url,
+              `新規ランクイン（${curr.rank}位）`,
+              [truncated + imageNote], []
+            );
+            aiAnalyzedCount++;
+          } else {
+            aiAnalysis = '（AI分析は1件目のみ自動実行）';
+          }
+          addedText = '【新規ランクイン】記事全体が対象';
+          addedImages = content.images || [];
         }
-
-        diffResults.push({
-          url: curr.url,
-          title: curr.title,
-          prevRank: prev?.rank || null,
-          currRank: curr.rank,
-          rankChange,
-          isNewEntry,
-          addedText,
-          removedText,
-          addedImages,
-          removedImages,
-          aiAnalysis,
-        });
       }
+
+      // allモードの場合: コンテンツ変更があるか、順位変動がある記事のみ表示
+      if (mode === 'all') {
+        if (!hasContentChange && !isNewEntry && (rankChange === null || rankChange === 0)) continue;
+      }
+
+      // 結果をDBに保存
+      const insertData: Record<string, unknown> = {
+        keyword_id: keywordId,
+        url: curr.url,
+        prev_rank: prev?.rank || null,
+        curr_rank: curr.rank,
+        rank_change: rankChange,
+        added_text: addedText,
+        removed_text: removedText,
+        added_images: addedImages,
+        removed_images: removedImages,
+        ai_analysis: aiAnalysis,
+        is_new_entry: isNewEntry,
+      };
+
+      const { error: insertError } = await supabase.from('diff_results').insert(insertData);
+      if (insertError && insertError.message?.includes('added_images')) {
+        delete insertData.added_images;
+        delete insertData.removed_images;
+        await supabase.from('diff_results').insert(insertData);
+      }
+
+      diffResults.push({
+        url: curr.url,
+        title: curr.title,
+        prevRank: prev?.rank || null,
+        currRank: curr.rank,
+        rankChange,
+        isNewEntry,
+        hasContentChange,
+        addedText,
+        removedText,
+        addedImages,
+        removedImages,
+        aiAnalysis,
+      });
     }
 
     return NextResponse.json({
       keyword: kw.keyword,
       latestDate,
       prevDate,
+      mode,
       totalChanges: diffResults.length,
+      contentChanges: diffResults.filter(r => r.hasContentChange).length,
       results: diffResults,
     });
   } catch (err) {

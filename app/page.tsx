@@ -23,6 +23,7 @@ interface DiffResult {
   currRank: number;
   rankChange: number | null;
   isNewEntry: boolean;
+  hasContentChange?: boolean;
   addedText: string;
   removedText: string;
   addedImages: string[];
@@ -66,6 +67,11 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<TabType>('serp');
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  // クロール履歴・日付選択
+  const [crawlDates, setCrawlDates] = useState<{ date: string; articleCount: number }[]>([]);
+  const [selectedDateA, setSelectedDateA] = useState<string>('');
+  const [selectedDateB, setSelectedDateB] = useState<string>('');
+  const [diffMode, setDiffMode] = useState<'all' | 'rank-up'>('all');
 
   const fetchKeywords = useCallback(async () => {
     setIsLoadingKeywords(true);
@@ -91,6 +97,27 @@ export default function Home() {
       if (data.results) setSavedDiffs(data.results);
     } catch {
       console.error('Failed to fetch saved diffs');
+    }
+  }, []);
+
+  // クロール履歴を取得
+  const fetchCrawlDates = useCallback(async (keywordId: string) => {
+    try {
+      const res = await fetch(`/api/crawl-dates?keywordId=${keywordId}`);
+      const data = await res.json();
+      if (data.dates) {
+        setCrawlDates(data.dates);
+        // デフォルトで最新2つを選択
+        if (data.dates.length >= 2) {
+          setSelectedDateB(data.dates[0].date);
+          setSelectedDateA(data.dates[1].date);
+        } else if (data.dates.length === 1) {
+          setSelectedDateB(data.dates[0].date);
+          setSelectedDateA('');
+        }
+      }
+    } catch {
+      console.error('Failed to fetch crawl dates');
     }
   }, []);
 
@@ -163,6 +190,8 @@ export default function Home() {
         }
         setSuccessMsg(`クロール完了: ${data.crawled}件取得`);
         setTimeout(() => setSuccessMsg(''), 5000);
+        // クロール履歴をリフレッシュ
+        fetchCrawlDates(selectedKeyword.id);
       } else {
         setError(data.error || 'クロールに失敗しました');
       }
@@ -173,17 +202,28 @@ export default function Home() {
     }
   };
 
-  const runDiff = async () => {
+  const runDiff = async (overrideDateA?: string, overrideDateB?: string) => {
     if (!selectedKeyword) return;
     setIsAnalyzing(true);
     setError('');
     setDiffResults([]);
     setActiveTab('diff');
     try {
+      const bodyData: Record<string, string> = {
+        keywordId: selectedKeyword.id,
+        mode: diffMode,
+      };
+      const dA = overrideDateA || selectedDateA;
+      const dB = overrideDateB || selectedDateB;
+      if (dA && dB) {
+        bodyData.dateA = dA;
+        bodyData.dateB = dB;
+      }
+
       const res = await fetch('/api/diff', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ keywordId: selectedKeyword.id }),
+        body: JSON.stringify(bodyData),
       });
       const data = await res.json();
       if (res.ok) {
@@ -192,12 +232,14 @@ export default function Home() {
           setDiffDates({ latestDate: data.latestDate, prevDate: data.prevDate });
         }
         if (data.results?.length === 0) {
-          setSuccessMsg('順位が上がった記事はありませんでした');
+          setSuccessMsg('変更が検知された記事はありませんでした');
         } else {
-          setSuccessMsg(`${data.totalChanges}件の変動を検知しました`);
+          const contentCount = data.contentChanges || 0;
+          setSuccessMsg(`${data.totalChanges}件の変動を検知（コンテンツ変更: ${contentCount}件）`);
         }
         setTimeout(() => setSuccessMsg(''), 5000);
         fetchSavedDiffs(selectedKeyword.id);
+        fetchCrawlDates(selectedKeyword.id);
       } else {
         setError(data.error || '差分検知に失敗しました');
       }
@@ -233,8 +275,12 @@ export default function Home() {
     setCrawlResult(null);
     setSerpItems([]);
     setCrawledAt(null);
+    setCrawlDates([]);
+    setSelectedDateA('');
+    setSelectedDateB('');
     setActiveTab('serp');
     fetchSavedDiffs(kw.id);
+    fetchCrawlDates(kw.id);
   };
 
   return (
@@ -509,6 +555,76 @@ export default function Home() {
                   {/* Diff Tab */}
                   {activeTab === 'diff' && (
                     <>
+                      {/* 日付選択パネル */}
+                      {crawlDates.length >= 2 && !isAnalyzing && (
+                        <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm mb-4">
+                          <h3 className="text-xs font-bold text-gray-700 mb-3">クロール履歴から比較</h3>
+                          <div className="flex items-end gap-3 flex-wrap">
+                            <div className="flex-1 min-w-[140px]">
+                              <label className="text-[10px] text-gray-400 font-medium mb-1 block">比較元（古い方）</label>
+                              <select
+                                value={selectedDateA}
+                                onChange={(e) => setSelectedDateA(e.target.value)}
+                                className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-700 focus:outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-200"
+                              >
+                                <option value="">選択してください</option>
+                                {crawlDates.map((d) => (
+                                  <option key={d.date} value={d.date}>
+                                    {new Date(d.date).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}（{d.articleCount}件）
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="text-gray-300 text-lg pb-2">→</div>
+                            <div className="flex-1 min-w-[140px]">
+                              <label className="text-[10px] text-gray-400 font-medium mb-1 block">比較先（新しい方）</label>
+                              <select
+                                value={selectedDateB}
+                                onChange={(e) => setSelectedDateB(e.target.value)}
+                                className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-700 focus:outline-none focus:border-violet-400 focus:ring-1 focus:ring-violet-200"
+                              >
+                                <option value="">選択してください</option>
+                                {crawlDates.map((d) => (
+                                  <option key={d.date} value={d.date}>
+                                    {new Date(d.date).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}（{d.articleCount}件）
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <button
+                              onClick={() => runDiff(selectedDateA, selectedDateB)}
+                              disabled={!selectedDateA || !selectedDateB || isAnalyzing}
+                              className="px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg transition-colors"
+                            >
+                              比較実行
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-3 mt-3">
+                            <label className="text-[10px] text-gray-400 font-medium">モード:</label>
+                            <button
+                              onClick={() => setDiffMode('all')}
+                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-colors ${
+                                diffMode === 'all'
+                                  ? 'bg-violet-100 text-violet-700 border border-violet-200'
+                                  : 'bg-gray-50 text-gray-400 border border-gray-200 hover:text-gray-600'
+                              }`}
+                            >
+                              全記事
+                            </button>
+                            <button
+                              onClick={() => setDiffMode('rank-up')}
+                              className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-colors ${
+                                diffMode === 'rank-up'
+                                  ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                                  : 'bg-gray-50 text-gray-400 border border-gray-200 hover:text-gray-600'
+                              }`}
+                            >
+                              順位上昇のみ
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
                       {isAnalyzing ? (
                         <div className="bg-white border border-gray-200 rounded-2xl p-16 text-center shadow-sm">
                           <div className="w-12 h-12 border-4 border-violet-200 border-t-violet-600 rounded-full animate-spin mx-auto mb-4"></div>
@@ -523,8 +639,9 @@ export default function Home() {
                           <div className="text-3xl mb-3 opacity-30">🧠</div>
                           <h3 className="text-base font-bold text-gray-900 mb-2">差分検知</h3>
                           <p className="text-sm text-gray-500">
-                            2回以上クロールした後に「差分検知 + AI分析」を<br />
-                            実行すると、順位変動と記事変更の分析結果が表示されます。
+                            {crawlDates.length >= 2
+                              ? '上の日付セレクタから2つの日付を選んで「比較実行」するか、\n左の「差分検知 + AI分析」ボタンを押してください。'
+                              : '2回以上クロールした後に「差分検知 + AI分析」を\n実行すると、順位変動と記事変更の分析結果が表示されます。'}
                           </p>
                         </div>
                       ) : (
@@ -545,7 +662,7 @@ export default function Home() {
                             </div>
                             <div className="flex items-center gap-3 text-xs">
                               <span className="text-gray-500">
-                                順位上昇: <span className="text-emerald-600 font-bold">{diffResults.filter(r => !r.isNewEntry).length}件</span>
+                                順位変動: <span className="text-emerald-600 font-bold">{diffResults.filter(r => !r.isNewEntry && r.rankChange !== 0).length}件</span>
                               </span>
                               <span className="w-1 h-1 rounded-full bg-gray-300"></span>
                               <span className="text-gray-500">
@@ -553,7 +670,7 @@ export default function Home() {
                               </span>
                               <span className="w-1 h-1 rounded-full bg-gray-300"></span>
                               <span className="text-gray-500">
-                                コンテンツ変更あり: <span className="text-violet-600 font-bold">{diffResults.filter(r => r.addedText || r.removedText || (r.addedImages?.length > 0)).length}件</span>
+                                コンテンツ変更: <span className="text-violet-600 font-bold">{diffResults.filter(r => r.addedText || r.removedText || (r.addedImages?.length > 0)).length}件</span>
                               </span>
                             </div>
                           </div>
