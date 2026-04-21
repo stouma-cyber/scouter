@@ -396,7 +396,7 @@ export default function Home() {
                     )}
                   </button>
                   <button
-                    onClick={runDiff}
+                    onClick={() => runDiff()}
                     disabled={isAnalyzing}
                     className="w-full py-3 bg-gradient-to-r from-violet-600 to-pink-600 hover:from-violet-500 hover:to-pink-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold rounded-xl transition-all flex items-center justify-center gap-2 shadow-sm"
                   >
