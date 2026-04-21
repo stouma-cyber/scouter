@@ -51,7 +51,7 @@ function extractImageDiff(
   return { addedImages, removedImages };
 }
 
-// Gemini AIで差分の意図を分析
+// Gemini AIで差分の意図を分析（軽量版・タイムアウト対策）
 async function analyzeWithAI(
   keyword: string,
   url: string,
@@ -62,35 +62,25 @@ async function analyzeWithAI(
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
-    const prompt = `あなたはSEO分析の専門家です。以下の情報を分析して、この記事がなぜ順位を上げたのかを解説してください。
+    // テキストを最大500文字に制限
+    const addedTrimmed = added.join('\n').substring(0, 500);
+    const removedTrimmed = removed.join('\n').substring(0, 500);
 
-## 対象キーワード
-${keyword}
+    const prompt = `SEO専門家として50文字x3行で簡潔に回答。
+KW:${keyword} URL:${url} 変動:${rankChange}
+追加:${addedTrimmed || 'なし'}
+削除:${removedTrimmed || 'なし'}
+1.検索意図への対応 2.評価理由 3.リライト提案`;
 
-## 対象URL
-${url}
-
-## 順位変動
-${rankChange}
-
-## 追加されたコンテンツ
-${added.length > 0 ? added.join('\n') : '追加なし'}
-
-## 削除されたコンテンツ
-${removed.length > 0 ? removed.join('\n') : '削除なし'}
-
-## 分析してほしいこと
-1. この加筆・修正はどんなユーザーの悩み（検索意図）に応えるためか？
-2. Googleがこの変更を評価した理由は何か？
-3. 自社記事に活かすなら、具体的にどうリライトすべきか？
-
-簡潔に、箇条書きで回答してください。`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 7000);
 
     const result = await model.generateContent(prompt);
+    clearTimeout(timeout);
     return result.response.text();
   } catch (err) {
     console.error('AI analysis failed:', err);
-    return 'AI分析に失敗しました';
+    return 'AI分析に失敗しました（タイムアウト）';
   }
 }
 
@@ -215,13 +205,18 @@ export async function POST(request: Request) {
               const combinedAdded = [...added];
               if (imageInfo.length > 0) combinedAdded.push(`【画像変更】${imageInfo.join('、')}`);
 
-              aiAnalysis = await analyzeWithAI(
-                kw.keyword,
-                curr.url,
-                `${prev!.rank}位 → ${curr.rank}位（+${rankChange}）`,
-                combinedAdded,
-                removed
-              );
+              // AI分析は最初の1件だけ実行（タイムアウト対策）
+              if (diffResults.length === 0) {
+                aiAnalysis = await analyzeWithAI(
+                  kw.keyword,
+                  curr.url,
+                  `${prev!.rank}位 → ${curr.rank}位（+${rankChange}）`,
+                  combinedAdded,
+                  removed
+                );
+              } else {
+                aiAnalysis = '（AI分析は1件目のみ自動実行。個別分析は今後対応予定）';
+              }
             } else {
               aiAnalysis = '本文・画像に変更はありません。被リンク増加やアルゴリズム変動など外部要因の可能性があります。';
             }
@@ -237,17 +232,22 @@ export async function POST(request: Request) {
             .single();
 
           if (content) {
-            const truncated = content.content.substring(0, 3000);
-            const imageCount = (content.images || []).length;
-            const imageNote = imageCount > 0 ? `\n【画像: ${imageCount}枚含む】` : '';
+            // AI分析は最初の1件だけ実行（タイムアウト対策）
+            if (diffResults.length === 0) {
+              const truncated = content.content.substring(0, 500);
+              const imageCount = (content.images || []).length;
+              const imageNote = imageCount > 0 ? `\n【画像: ${imageCount}枚含む】` : '';
 
-            aiAnalysis = await analyzeWithAI(
-              kw.keyword,
-              curr.url,
-              `新規ランクイン（${curr.rank}位）`,
-              [truncated + imageNote],
-              []
-            );
+              aiAnalysis = await analyzeWithAI(
+                kw.keyword,
+                curr.url,
+                `新規ランクイン（${curr.rank}位）`,
+                [truncated + imageNote],
+                []
+              );
+            } else {
+              aiAnalysis = '（AI分析は1件目のみ自動実行）';
+            }
             addedText = '【新規ランクイン】記事全体が対象';
             addedImages = content.images || [];
           }
