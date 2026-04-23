@@ -5,8 +5,8 @@ import { Readability } from '@mozilla/readability';
 import crypto from 'crypto';
 
 const SERPER_API_KEY = process.env.SERPER_API_KEY!;
-const MAX_CRAWL_ARTICLES = 10; // Vercel Hobby 10秒制限対策: クロール対象を制限
-const FETCH_TIMEOUT_MS = 5000; // 記事取得のタイムアウト（5秒）
+const MAX_CRAWL_ARTICLES = 5; // Vercel Hobby 10秒制限対策: 上位5件に絞って全並列
+const FETCH_TIMEOUT_MS = 3000; // 記事取得のタイムアウト（3秒）
 
 interface SearchResult {
   title: string;
@@ -148,63 +148,55 @@ export async function POST(request: Request) {
       console.error('SERP save error:', serpError);
     }
 
-    // 3. 本文クローリング（3記事ずつ処理、上位MAX_CRAWL_ARTICLES件のみ）
+    // 3. 本文クローリング（上位5件を全並列処理）
     const crawlTargets = searchResults.slice(0, MAX_CRAWL_ARTICLES);
     const crawlResults: { url: string; success: boolean; error?: string }[] = [];
-    const batchSize = 3;
 
-    for (let i = 0; i < crawlTargets.length; i += batchSize) {
-      const batch = crawlTargets.slice(i, i + batchSize);
-      const promises = batch.map(async (result) => {
-        try {
-          const article = await fetchArticleContent(result.link);
-          if (article) {
-            const contentHash = hashContent(article.content);
+    const promises = crawlTargets.map(async (result) => {
+      try {
+        const article = await fetchArticleContent(result.link);
+        if (article) {
+          const contentHash = hashContent(article.content);
 
-            // 同じURLの最新本文と比較し、変更があれば保存
-            const { data: existing } = await supabase
-              .from('article_contents')
-              .select('content_hash')
-              .eq('url', result.link)
-              .order('fetched_at', { ascending: false })
-              .limit(1)
-              .single();
+          const { data: existing } = await supabase
+            .from('article_contents')
+            .select('content_hash')
+            .eq('url', result.link)
+            .order('fetched_at', { ascending: false })
+            .limit(1)
+            .single();
 
-            // 新規 or 内容が変わっていれば保存
-            if (!existing || existing.content_hash !== contentHash) {
-              const { error: insertErr } = await supabase.from('article_contents').insert({
-                url: result.link,
-                title: article.title,
-                content: article.content,
-                content_hash: contentHash,
-                images: article.images,
-              });
-              if (insertErr) {
-                console.error(`DB insert error for ${result.link}:`, insertErr.message);
-              }
+          if (!existing || existing.content_hash !== contentHash) {
+            const { error: insertErr } = await supabase.from('article_contents').insert({
+              url: result.link,
+              title: article.title,
+              content: article.content,
+              content_hash: contentHash,
+              images: article.images,
+            });
+            if (insertErr) {
+              console.error(`DB insert error for ${result.link}:`, insertErr.message);
             }
-
-            return { url: result.link, success: true };
           }
-          return { url: result.link, success: false, error: '記事本文の抽出に失敗' };
-        } catch (err) {
-          return { url: result.link, success: false, error: err instanceof Error ? err.message : 'Unknown error' };
-        }
-      });
 
-      const results = await Promise.allSettled(promises);
-      results.forEach((r) => {
-        if (r.status === 'fulfilled') {
-          crawlResults.push(r.value);
+          return { url: result.link, success: true };
         }
-      });
-    }
+        return { url: result.link, success: false, error: '記事本文の抽出に失敗' };
+      } catch (err) {
+        return { url: result.link, success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+      }
+    });
+
+    const settled = await Promise.allSettled(promises);
+    settled.forEach((r) => {
+      if (r.status === 'fulfilled') crawlResults.push(r.value);
+    });
 
     // クロールしなかった記事もリストに追加（SERP保存はしてある）
     const skippedResults = searchResults.slice(MAX_CRAWL_ARTICLES).map((r) => ({
       url: r.link,
       success: false,
-      error: 'クロール対象外（上位10件のみ取得）',
+      error: 'クロール対象外（上位5件のみ取得）',
     }));
     crawlResults.push(...skippedResults);
 
