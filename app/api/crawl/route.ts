@@ -5,7 +5,7 @@ import { Readability } from '@mozilla/readability';
 import crypto from 'crypto';
 
 const SERPER_API_KEY = process.env.SERPER_API_KEY!;
-const MAX_CRAWL_ARTICLES = 5; // Vercel Hobby 10秒制限対策: 上位5件に絞って全並列
+const MAX_CRAWL_ARTICLES = 10; // 上位10件を全並列取得
 const FETCH_TIMEOUT_MS = 3000; // 記事取得のタイムアウト（3秒）
 
 interface SearchResult {
@@ -196,7 +196,7 @@ export async function POST(request: Request) {
     const skippedResults = searchResults.slice(MAX_CRAWL_ARTICLES).map((r) => ({
       url: r.link,
       success: false,
-      error: 'クロール対象外（上位5件のみ取得）',
+      error: 'クロール対象外（上位10件のみ取得）',
     }));
     crawlResults.push(...skippedResults);
 
