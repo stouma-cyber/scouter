@@ -746,13 +746,13 @@ export default function Home() {
                                         </span>
                                       ) : (
                                         <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[10px] font-bold rounded-full border border-emerald-200">
-                                          UP +{item.rank_change}
+                                          {item.curr_rank}位 (↑{item.rank_change})
                                         </span>
                                       )}
                                       <span className="text-xs text-gray-500">
                                         {item.is_new_entry
                                           ? `${item.curr_rank}位にランクイン`
-                                          : `${item.prev_rank}位 → ${item.curr_rank}位`}
+                                          : `前回${item.prev_rank}位`}
                                       </span>
                                       <span className="text-[10px] text-gray-400 ml-auto">
                                         {new Date(item.detected_at).toLocaleDateString('ja-JP')}
@@ -976,8 +976,8 @@ function DiffCard({
                 </span>
               ) : (
                 <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-[11px] font-bold rounded-lg border border-emerald-200">
-                  ↑ {result.prevRank}位 → {result.currRank}位
-                  <span className="ml-1 opacity-60">(+{result.rankChange})</span>
+                  {result.currRank}位
+                  <span className="ml-1 opacity-70">(↑{result.rankChange})</span>
                 </span>
               )}
               <PageTypeBadge type={pageType} />
