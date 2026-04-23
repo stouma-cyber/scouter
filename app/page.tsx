@@ -930,7 +930,10 @@ function DiffCard({
       });
       const data = await res.json();
       if (!res.ok || !data.analysis) {
-        setLocalAnalysis(`AI分析に失敗しました（${data.error ?? res.status}）`);
+        const msg = res.status === 429
+          ? 'Gemini APIのレート制限中です。しばらく待ってから再試行してください（1〜2分）'
+          : `AI分析に失敗しました（${data.error ?? res.status}）`;
+        setLocalAnalysis(msg);
       } else {
         setLocalAnalysis(data.analysis);
       }

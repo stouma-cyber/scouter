@@ -37,9 +37,8 @@ KW:${keyword} URL:${url} 変動:${rankChange || '不明'}
 
     return NextResponse.json({ analysis });
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'AI分析に失敗しました' },
-      { status: 500 }
-    );
+    const message = err instanceof Error ? err.message : 'AI分析に失敗しました';
+    const status = message.includes('429') ? 429 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }
