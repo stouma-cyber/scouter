@@ -914,21 +914,28 @@ function DiffCard({
       const rankChange = result.isNewEntry
         ? `新規ランクイン（${result.currRank}位）`
         : `${result.prevRank}位 → ${result.currRank}位`;
+
+      // diffHunksから変更テキストを復元してAIに渡す
+      const addedText = result.diffHunks
+        ? result.diffHunks.flatMap(h => h.filter(c => c.added).map(c => c.value)).join(' ').slice(0, 600)
+        : result.addedText;
+      const removedText = result.diffHunks
+        ? result.diffHunks.flatMap(h => h.filter(c => c.removed).map(c => c.value)).join(' ').slice(0, 600)
+        : result.removedText;
+
       const res = await fetch('/api/analyze-single', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          keyword,
-          url: result.url,
-          rankChange,
-          addedText: result.addedText,
-          removedText: result.removedText,
-        }),
+        body: JSON.stringify({ keyword, url: result.url, rankChange, addedText, removedText }),
       });
       const data = await res.json();
-      if (data.analysis) setLocalAnalysis(data.analysis);
-    } catch {
-      setLocalAnalysis('AI分析に失敗しました');
+      if (!res.ok || !data.analysis) {
+        setLocalAnalysis(`AI分析に失敗しました（${data.error ?? res.status}）`);
+      } else {
+        setLocalAnalysis(data.analysis);
+      }
+    } catch (err) {
+      setLocalAnalysis(`AI分析に失敗しました（${err instanceof Error ? err.message : '通信エラー'}）`);
     } finally {
       setIsAnalyzing(false);
     }
