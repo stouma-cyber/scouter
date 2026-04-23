@@ -285,6 +285,19 @@ export default function Home() {
     });
   };
 
+  const fetchLatestSerp = useCallback(async (keywordId: string) => {
+    try {
+      const res = await fetch(`/api/serp-latest?keywordId=${keywordId}`);
+      const data = await res.json();
+      if (data.serp && data.serp.length > 0) {
+        setSerpItems(data.serp);
+        setCrawledAt(data.crawledAt);
+      }
+    } catch {
+      console.error('Failed to fetch latest SERP');
+    }
+  }, []);
+
   const selectKeyword = (kw: Keyword) => {
     setSelectedKeyword(kw);
     setDiffResults([]);
@@ -298,6 +311,7 @@ export default function Home() {
     setActiveTab('serp');
     fetchSavedDiffs(kw.id);
     fetchCrawlDates(kw.id);
+    fetchLatestSerp(kw.id);
   };
 
   return (
