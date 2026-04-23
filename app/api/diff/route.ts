@@ -229,157 +229,167 @@ export async function POST(request: Request) {
       diffHunks: DiffChunk[][];
     }> = [];
 
-    let aiAnalyzedCount = 0;
+    // Step 1: 全記事のコンテンツを並列取得
+    type ContentRow = { content: string; images: string[]; fetched_at: string };
+    type ArticleData = {
+      curr: SerpEntry;
+      prev: SerpEntry | undefined;
+      isNewEntry: boolean;
+      rankChange: number | null;
+      newContent: ContentRow | null;
+      oldContent: ContentRow | null;
+      newEntryContent: { content: string; images: string[] } | null;
+    };
 
-    for (const curr of latestSerp as SerpEntry[]) {
+    const serpEntries = (latestSerp as SerpEntry[]).filter((curr) => {
       const prev = prevMap.get(curr.url);
-      const isNewEntry = !prev;
       const rankChange = prev ? prev.rank - curr.rank : null;
+      if (mode === 'rank-up' && !(!prev) && (rankChange === null || rankChange <= 0)) return false;
+      return true;
+    });
 
-      // モードによるフィルタリング
-      if (mode === 'rank-up') {
-        // 従来モード: 順位上昇 or 新規のみ
-        if (!isNewEntry && (rankChange === null || rankChange <= 0)) continue;
-      }
-      // mode === 'all' の場合はすべての記事を処理
+    const articleDataList: ArticleData[] = await Promise.all(
+      serpEntries.map(async (curr) => {
+        const prev = prevMap.get(curr.url);
+        const isNewEntry = !prev;
+        const rankChange = prev ? prev.rank - curr.rank : null;
 
-      let addedText = '';
-      let removedText = '';
-      let addedImages: string[] = [];
-      let removedImages: string[] = [];
-      let aiAnalysis = '';
+        if (!isNewEntry) {
+          const [{ data: newRows }, { data: oldRows }] = await Promise.all([
+            supabase.from('article_contents').select('content, images, fetched_at')
+              .eq('url', curr.url).lte('fetched_at', latestDate)
+              .order('fetched_at', { ascending: false }).limit(1),
+            supabase.from('article_contents').select('content, images, fetched_at')
+              .eq('url', curr.url).lte('fetched_at', prevDate)
+              .order('fetched_at', { ascending: false }).limit(1),
+          ]);
+          return {
+            curr, prev, isNewEntry, rankChange,
+            newContent: newRows?.[0] ?? null,
+            oldContent: oldRows?.[0] ?? null,
+            newEntryContent: null,
+          };
+        } else {
+          const { data } = await supabase.from('article_contents').select('content, images')
+            .eq('url', curr.url).order('fetched_at', { ascending: false }).limit(1).single();
+          return {
+            curr, prev, isNewEntry, rankChange,
+            newContent: null, oldContent: null,
+            newEntryContent: data ?? null,
+          };
+        }
+      })
+    );
+
+    // Step 2: diff計算（CPUバウンド、同期処理）
+    type ProcessedArticle = ArticleData & {
+      addedText: string;
+      removedText: string;
+      addedImages: string[];
+      removedImages: string[];
+      hasContentChange: boolean;
+      diffHunks: DiffChunk[][];
+      aiAnalysis: string;
+    };
+
+    const processed: ProcessedArticle[] = articleDataList.map((data) => {
+      const { curr, prev, isNewEntry, rankChange, newContent, oldContent, newEntryContent } = data;
+      let addedText = '', removedText = '', aiAnalysis = '';
+      let addedImages: string[] = [], removedImages: string[] = [];
       let hasContentChange = false;
       let diffHunks: DiffChunk[][] = [];
 
-      if (!isNewEntry) {
-        // 記事コンテンツの差分検知
-        // 指定日付に近いコンテンツを取得
-        const { data: newContent } = await supabase
-          .from('article_contents')
-          .select('content, images, fetched_at')
-          .eq('url', curr.url)
-          .lte('fetched_at', latestDate)
-          .order('fetched_at', { ascending: false })
-          .limit(1);
-
-        const { data: oldContent } = await supabase
-          .from('article_contents')
-          .select('content, images, fetched_at')
-          .eq('url', curr.url)
-          .lte('fetched_at', prevDate)
-          .order('fetched_at', { ascending: false })
-          .limit(1);
-
-        if (newContent && newContent.length > 0 && oldContent && oldContent.length > 0) {
-          // 同じコンテンツでないことを確認
-          if (newContent[0].fetched_at !== oldContent[0].fetched_at) {
-            const { added, removed, diffHunks: hunks } = extractWordDiff(oldContent[0].content, newContent[0].content);
-            addedText = added.slice(0, 20).join('\n');
-            removedText = removed.slice(0, 20).join('\n');
-            diffHunks = hunks;
-
-            const imgDiff = extractImageDiff(
-              oldContent[0].images || [],
-              newContent[0].images || []
-            );
-            addedImages = imgDiff.addedImages;
-            removedImages = imgDiff.removedImages;
-
-            hasContentChange = added.length > 0 || removed.length > 0 || addedImages.length > 0 || removedImages.length > 0;
-
-            if (hasContentChange && aiAnalyzedCount === 0) {
-              const imageInfo: string[] = [];
-              if (addedImages.length > 0) imageInfo.push(`画像追加: ${addedImages.length}枚`);
-              if (removedImages.length > 0) imageInfo.push(`画像削除: ${removedImages.length}枚`);
-
-              const combinedAdded = [...added];
-              if (imageInfo.length > 0) combinedAdded.push(`【画像変更】${imageInfo.join('、')}`);
-
-              const rankInfo = rankChange !== null
-                ? `${prev!.rank}位 → ${curr.rank}位（${rankChange > 0 ? '+' : ''}${rankChange}）`
-                : `${curr.rank}位（変動なし）`;
-
-              aiAnalysis = await analyzeWithAI(kw.keyword, curr.url, rankInfo, combinedAdded, removed);
-              aiAnalyzedCount++;
-            } else if (hasContentChange) {
-              aiAnalysis = '（AI分析は1件目のみ自動実行）';
-            }
-          }
-        }
-      } else {
-        // 新規ランクイン
+      if (!isNewEntry && newContent && oldContent && newContent.fetched_at !== oldContent.fetched_at) {
+        const { added, removed, diffHunks: hunks } = extractWordDiff(oldContent.content, newContent.content);
+        addedText = added.slice(0, 20).join('\n');
+        removedText = removed.slice(0, 20).join('\n');
+        diffHunks = hunks;
+        const imgDiff = extractImageDiff(oldContent.images || [], newContent.images || []);
+        addedImages = imgDiff.addedImages;
+        removedImages = imgDiff.removedImages;
+        hasContentChange = added.length > 0 || removed.length > 0 || addedImages.length > 0 || removedImages.length > 0;
+      } else if (isNewEntry && newEntryContent) {
         hasContentChange = true;
-        const { data: content } = await supabase
-          .from('article_contents')
-          .select('content, images')
-          .eq('url', curr.url)
-          .order('fetched_at', { ascending: false })
-          .limit(1)
-          .single();
-
-        if (content) {
-          if (aiAnalyzedCount === 0) {
-            const truncated = content.content.substring(0, 500);
-            const imageCount = (content.images || []).length;
-            const imageNote = imageCount > 0 ? `\n【画像: ${imageCount}枚含む】` : '';
-
-            aiAnalysis = await analyzeWithAI(
-              kw.keyword, curr.url,
-              `新規ランクイン（${curr.rank}位）`,
-              [truncated + imageNote], []
-            );
-            aiAnalyzedCount++;
-          } else {
-            aiAnalysis = '（AI分析は1件目のみ自動実行）';
-          }
-          addedText = '【新規ランクイン】記事全体が対象';
-          addedImages = content.images || [];
-        }
+        addedText = '【新規ランクイン】記事全体が対象';
+        addedImages = newEntryContent.images || [];
       }
 
-      // allモードの場合: コンテンツ変更があるか、順位変動がある記事のみ表示
-      if (mode === 'all') {
-        if (!hasContentChange && !isNewEntry && (rankChange === null || rankChange === 0)) continue;
+      if (mode === 'all' && !hasContentChange && !isNewEntry && (rankChange === null || rankChange === 0)) {
+        return { ...data, addedText, removedText, addedImages, removedImages, hasContentChange, diffHunks, aiAnalysis };
       }
 
-      // 結果をDBに保存
-      const insertData: Record<string, unknown> = {
-        keyword_id: keywordId,
-        url: curr.url,
-        prev_rank: prev?.rank || null,
-        curr_rank: curr.rank,
-        rank_change: rankChange,
-        added_text: addedText,
-        removed_text: removedText,
-        added_images: addedImages,
-        removed_images: removedImages,
-        ai_analysis: aiAnalysis,
-        is_new_entry: isNewEntry,
-      };
+      void prev; // suppress unused warning
+      return { ...data, addedText, removedText, addedImages, removedImages, hasContentChange, diffHunks, aiAnalysis };
+    }).filter((d) => {
+      if (mode === 'all') return d.hasContentChange || d.isNewEntry || (d.rankChange !== null && d.rankChange !== 0);
+      return true;
+    });
 
-      const { error: insertError } = await supabase.from('diff_results').insert(insertData);
-      if (insertError && insertError.message?.includes('added_images')) {
-        delete insertData.added_images;
-        delete insertData.removed_images;
-        await supabase.from('diff_results').insert(insertData);
+    // Step 3: 最初のコンテンツ変更記事だけAI分析
+    const firstChanged = processed.find(d => d.hasContentChange);
+    if (firstChanged) {
+      const { curr, prev, isNewEntry, rankChange, addedImages, removedImages, newContent, oldContent, newEntryContent } = firstChanged;
+      if (isNewEntry && newEntryContent) {
+        const truncated = newEntryContent.content.substring(0, 500);
+        const imageNote = (newEntryContent.images || []).length > 0 ? `\n【画像: ${(newEntryContent.images || []).length}枚含む】` : '';
+        firstChanged.aiAnalysis = await analyzeWithAI(kw.keyword, curr.url, `新規ランクイン（${curr.rank}位）`, [truncated + imageNote], []);
+      } else if (!isNewEntry && newContent && oldContent) {
+        const { added, removed } = extractWordDiff(oldContent.content, newContent.content);
+        const imageInfo: string[] = [];
+        if (addedImages.length > 0) imageInfo.push(`画像追加: ${addedImages.length}枚`);
+        if (removedImages.length > 0) imageInfo.push(`画像削除: ${removedImages.length}枚`);
+        const combinedAdded = [...added];
+        if (imageInfo.length > 0) combinedAdded.push(`【画像変更】${imageInfo.join('、')}`);
+        const rankInfo = rankChange !== null
+          ? `${prev!.rank}位 → ${curr.rank}位（${rankChange > 0 ? '+' : ''}${rankChange}）`
+          : `${curr.rank}位（変動なし）`;
+        firstChanged.aiAnalysis = await analyzeWithAI(kw.keyword, curr.url, rankInfo, combinedAdded, removed);
       }
-
-      diffResults.push({
-        url: curr.url,
-        title: curr.title,
-        prevRank: prev?.rank || null,
-        currRank: curr.rank,
-        rankChange,
-        isNewEntry,
-        hasContentChange,
-        addedText,
-        removedText,
-        addedImages,
-        removedImages,
-        aiAnalysis,
-        diffHunks,
+      processed.filter(d => d !== firstChanged && d.hasContentChange).forEach(d => {
+        d.aiAnalysis = '（AI分析は1件目のみ自動実行）';
       });
     }
+
+    // Step 4: DB保存 + 結果配列構築（並列）
+    await Promise.all(
+      processed.map(async (d) => {
+        const { curr, prev, isNewEntry, rankChange, addedText, removedText, addedImages, removedImages, aiAnalysis, hasContentChange, diffHunks } = d;
+        const insertData: Record<string, unknown> = {
+          keyword_id: keywordId,
+          url: curr.url,
+          prev_rank: prev?.rank || null,
+          curr_rank: curr.rank,
+          rank_change: rankChange,
+          added_text: addedText,
+          removed_text: removedText,
+          added_images: addedImages,
+          removed_images: removedImages,
+          ai_analysis: aiAnalysis,
+          is_new_entry: isNewEntry,
+        };
+        const { error: insertError } = await supabase.from('diff_results').insert(insertData);
+        if (insertError?.message?.includes('added_images')) {
+          delete insertData.added_images;
+          delete insertData.removed_images;
+          await supabase.from('diff_results').insert(insertData);
+        }
+        diffResults.push({
+          url: curr.url,
+          title: curr.title,
+          prevRank: prev?.rank || null,
+          currRank: curr.rank,
+          rankChange,
+          isNewEntry,
+          hasContentChange,
+          addedText,
+          removedText,
+          addedImages,
+          removedImages,
+          aiAnalysis,
+          diffHunks,
+        });
+      })
+    );
 
     return NextResponse.json({
       keyword: kw.keyword,
