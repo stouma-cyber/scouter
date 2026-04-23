@@ -543,7 +543,7 @@ export default function Home() {
                                 <div className="flex items-center gap-1.5 mb-1 flex-wrap">
                                   <PageTypeBadge type={item.pageType} />
                                   {item.siteName && (
-                                    <span className="text-[10px] text-gray-400 font-medium truncate max-w-[120px]">{item.siteName}</span>
+                                    <span className="text-[10px] text-gray-400 font-medium">{item.siteName}</span>
                                   )}
                                 </div>
                                 <p className="text-sm text-gray-900 font-medium leading-snug mb-1 line-clamp-2">
