@@ -1,8 +1,14 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
+function checkSecret(request: Request) {
+  const { searchParams } = new URL(request.url);
+  return searchParams.get('secret') === process.env.APP_PASSWORD;
+}
+
 // GET: DB状態確認
-export async function GET() {
+export async function GET(request: Request) {
+  if (!checkSecret(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const [{ data: articles }, { data: serps }] = await Promise.all([
     supabase.from('article_contents').select('url, fetched_at'),
     supabase.from('serp_snapshots').select('observed_at, keyword_id, url'),
@@ -26,7 +32,8 @@ export async function GET() {
 }
 
 // DELETE: 同日の重複クロールを削除（各日の最新1回だけ残す）
-export async function DELETE() {
+export async function DELETE(request: Request) {
+  if (!checkSecret(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { data: serps } = await supabase
     .from('serp_snapshots')
     .select('observed_at, keyword_id')

@@ -5,7 +5,7 @@ export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // ログインページとログインAPIは認証不要
-  if (pathname === '/login' || pathname === '/api/login') {
+  if (pathname === '/login' || pathname === '/api/login' || pathname === '/api/admin') {
     return NextResponse.next();
   }
 
