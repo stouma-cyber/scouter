@@ -854,7 +854,7 @@ export default function Home() {
           <div className="flex items-center gap-4">
             <span>Serper.dev (Google SERP)</span>
             <span className="w-1 h-1 rounded-full bg-gray-300"></span>
-            <span>Gemini AI</span>
+            <span>Claude AI</span>
           </div>
         </div>
       </footer>
@@ -931,7 +931,7 @@ function DiffCard({
       const data = await res.json();
       if (!res.ok || !data.analysis) {
         const msg = res.status === 429
-          ? 'Gemini APIのレート制限中です。しばらく待ってから再試行してください（1〜2分）'
+          ? 'レート制限中です。しばらく待ってから再試行してください'
           : `AI分析に失敗しました（${data.error ?? res.status}）`;
         setLocalAnalysis(msg);
       } else {
@@ -1176,7 +1176,7 @@ function DiffCard({
               </div>
             ) : isAnalyzing ? (
               <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-xs text-gray-400 text-center">
-                Gemini AIが分析中...
+                Claude AIが分析中...
               </div>
             ) : null}
           </div>

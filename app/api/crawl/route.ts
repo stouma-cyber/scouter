@@ -185,48 +185,71 @@ export async function POST(request: Request) {
       console.error('SERP save error:', serpError);
     }
 
-    // 3. 本文クローリング（上位5件を全並列処理）
+    // 3. 本文クローリング（上位10件を全並列処理）
     const crawlTargets = searchResults.slice(0, MAX_CRAWL_ARTICLES);
-    const crawlResults: { url: string; success: boolean; siteName?: string; pageType?: PageType; error?: string }[] = [];
 
-    const promises = crawlTargets.map(async (result) => {
-      try {
-        const article = await fetchArticleContent(result.link);
-        if (article) {
-          const contentHash = hashContent(article.content);
+    // Step 1: 全記事を並列フェッチ
+    type FetchResult = { url: string; article: Awaited<ReturnType<typeof fetchArticleContent>> };
+    const fetchSettled = await Promise.allSettled<FetchResult>(
+      crawlTargets.map(async (result) => ({
+        url: result.link,
+        article: await fetchArticleContent(result.link),
+      }))
+    );
 
-          const { data: existing } = await supabase
-            .from('article_contents')
-            .select('content_hash')
-            .eq('url', result.link)
-            .order('fetched_at', { ascending: false })
-            .limit(1)
-            .single();
-
-          if (!existing || existing.content_hash !== contentHash) {
-            const { error: insertErr } = await supabase.from('article_contents').insert({
-              url: result.link,
-              title: article.title,
-              content: article.content,
-              content_hash: contentHash,
-              images: article.images,
-            });
-            if (insertErr) {
-              console.error(`DB insert error for ${result.link}:`, insertErr.message);
-            }
-          }
-
-          return { url: result.link, success: true, siteName: article.siteName, pageType: article.pageType };
-        }
-        return { url: result.link, success: false, siteName: '', pageType: 'unknown' as PageType, error: '記事本文の抽出に失敗' };
-      } catch (err) {
-        return { url: result.link, success: false, siteName: '', pageType: 'unknown' as PageType, error: err instanceof Error ? err.message : 'Unknown error' };
+    const successfulFetches: Array<{ url: string; article: NonNullable<Awaited<ReturnType<typeof fetchArticleContent>>> }> = [];
+    fetchSettled.forEach((r) => {
+      if (r.status === 'fulfilled' && r.value.article) {
+        successfulFetches.push({ url: r.value.url, article: r.value.article });
       }
     });
 
-    const settled = await Promise.allSettled(promises);
-    settled.forEach((r) => {
-      if (r.status === 'fulfilled') crawlResults.push(r.value);
+    // Step 2: 成功分のURLを一括でDB照合（クエリ1回）
+    const existingMap = new Map<string, string>();
+    if (successfulFetches.length > 0) {
+      const { data: existing } = await supabase
+        .from('article_contents')
+        .select('url, content_hash, fetched_at')
+        .in('url', successfulFetches.map(f => f.url))
+        .order('fetched_at', { ascending: false });
+      (existing || []).forEach((row: { url: string; content_hash: string }) => {
+        if (!existingMap.has(row.url)) existingMap.set(row.url, row.content_hash);
+      });
+    }
+
+    // Step 3: 変更ありのみ挿入（並列）
+    const crawlResults: { url: string; success: boolean; siteName?: string; pageType?: PageType; error?: string }[] = [];
+
+    await Promise.allSettled(
+      successfulFetches.map(async ({ url, article }) => {
+        const contentHash = hashContent(article.content);
+        if (existingMap.get(url) !== contentHash) {
+          const { error: insertErr } = await supabase.from('article_contents').insert({
+            url,
+            title: article.title,
+            content: article.content,
+            content_hash: contentHash,
+            images: article.images,
+          });
+          if (insertErr) console.error(`DB insert error for ${url}:`, insertErr.message);
+        }
+        crawlResults.push({ url, success: true, siteName: article.siteName, pageType: article.pageType });
+      })
+    );
+
+    // フェッチ失敗分を追加
+    const succeededUrls = new Set(successfulFetches.map(f => f.url));
+    fetchSettled.forEach((r, i) => {
+      const url = crawlTargets[i].link;
+      if (!succeededUrls.has(url)) {
+        crawlResults.push({
+          url,
+          success: false,
+          error: r.status === 'rejected'
+            ? (r.reason instanceof Error ? r.reason.message : 'Unknown error')
+            : '記事本文の抽出に失敗',
+        });
+      }
     });
 
     // クロールしなかった記事もリストに追加（SERP保存はしてある）

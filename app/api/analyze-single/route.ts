@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import Anthropic from '@anthropic-ai/sdk';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+const client = new Anthropic();
 
 export async function POST(request: Request) {
   try {
@@ -13,8 +13,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'keyword と url は必須です' }, { status: 400 });
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-
     const addedTrimmed = (addedText || '').substring(0, 500);
     const removedTrimmed = (removedText || '').substring(0, 500);
 
@@ -24,8 +22,13 @@ KW:${keyword} URL:${url} 変動:${rankChange || '不明'}
 削除:${removedTrimmed || 'なし'}
 1.検索意図への対応 2.評価理由 3.リライト提案`;
 
-    const result = await model.generateContent(prompt);
-    const analysis = result.response.text();
+    const message = await client.messages.create({
+      model: 'claude-haiku-4-5',
+      max_tokens: 256,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const analysis = message.content[0].type === 'text' ? message.content[0].text : '';
 
     // diff_resultsにIDがあれば更新
     if (diffResultId) {
@@ -37,8 +40,10 @@ KW:${keyword} URL:${url} 変動:${rankChange || '不明'}
 
     return NextResponse.json({ analysis });
   } catch (err) {
+    if (err instanceof Anthropic.RateLimitError) {
+      return NextResponse.json({ error: 'レート制限中です。しばらく待ってから再試行してください' }, { status: 429 });
+    }
     const message = err instanceof Error ? err.message : 'AI分析に失敗しました';
-    const status = message.includes('429') ? 429 : 500;
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

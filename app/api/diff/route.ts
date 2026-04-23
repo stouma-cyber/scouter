@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import Anthropic from '@anthropic-ai/sdk';
 import { diffWords } from 'diff';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+const client = new Anthropic();
 
 interface SerpEntry {
   url: string;
@@ -89,7 +89,7 @@ function extractImageDiff(
   return { addedImages, removedImages };
 }
 
-// Gemini AIで差分の意図を分析
+// Claude AIで差分の意図を分析
 async function analyzeWithAI(
   keyword: string,
   url: string,
@@ -98,8 +98,6 @@ async function analyzeWithAI(
   removed: string[]
 ): Promise<string> {
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-
     const addedTrimmed = added.join('\n').substring(0, 500);
     const removedTrimmed = removed.join('\n').substring(0, 500);
 
@@ -109,15 +107,16 @@ KW:${keyword} URL:${url} 変動:${rankChange}
 削除:${removedTrimmed || 'なし'}
 1.検索意図への対応 2.評価理由 3.リライト提案`;
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 7000);
+    const message = await client.messages.create({
+      model: 'claude-haiku-4-5',
+      max_tokens: 256,
+      messages: [{ role: 'user', content: prompt }],
+    });
 
-    const result = await model.generateContent(prompt);
-    clearTimeout(timeout);
-    return result.response.text();
+    return message.content[0].type === 'text' ? message.content[0].text : '';
   } catch (err) {
     console.error('AI analysis failed:', err);
-    return 'AI分析に失敗しました（タイムアウト）';
+    return 'AI分析に失敗しました';
   }
 }
 
