@@ -13,6 +13,36 @@ interface SearchResult {
   link: string;
 }
 
+type PageType = 'article' | 'service' | 'lp' | 'unknown';
+
+function extractSiteName(html: string, url: string): string {
+  const ogMatch = html.match(/<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']{1,60})["']/i)
+    ?? html.match(/<meta[^>]+content=["']([^"']{1,60})["'][^>]+property=["']og:site_name["']/i);
+  if (ogMatch) return ogMatch[1].trim();
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+function detectPageType(url: string, html: string): PageType {
+  const path = (() => { try { return new URL(url).pathname; } catch { return url; } })();
+
+  const articlePaths = /\/(column|blog|media|article|articles|news|post|posts|topics|journal|magazine|info|guide|howto|tips|knowledge|faq|column|lp\/(?!.*service))/i;
+  const servicePaths = /\/(service|services|feature|features|product|products|solution|solutions|price|pricing)/i;
+  const lpPaths = /\/lp[\/\-_]|\/landing[\/\-_]/i;
+
+  if (lpPaths.test(path)) return 'lp';
+  if (articlePaths.test(path)) return 'article';
+  if (servicePaths.test(path)) return 'service';
+
+  if (/og:type["'\s]+content=["']article["']/i.test(html)) return 'article';
+  if (/<time[\s>]/i.test(html) && /<article[\s>]/i.test(html)) return 'article';
+
+  return 'unknown';
+}
+
 // Serper.dev APIでGoogle検索上位記事を取得（最大20件）
 async function fetchSearchResults(keyword: string): Promise<SearchResult[]> {
   const controller = new AbortController();
@@ -53,7 +83,7 @@ async function fetchSearchResults(keyword: string): Promise<SearchResult[]> {
 }
 
 // 記事本文と画像を取得（Readabilityで抽出）
-async function fetchArticleContent(url: string): Promise<{ title: string; content: string; images: string[] } | null> {
+async function fetchArticleContent(url: string): Promise<{ title: string; content: string; images: string[]; siteName: string; pageType: PageType } | null> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -74,6 +104,8 @@ async function fetchArticleContent(url: string): Promise<{ title: string; conten
     if (!res.ok) return null;
 
     const html = await res.text();
+    const siteName = extractSiteName(html, url);
+    const pageType = detectPageType(url, html);
     const { document } = parseHTML(html);
     // linkedom doesn't set baseURI automatically, set it for Readability
     Object.defineProperty(document, 'baseURI', { value: url, writable: false });
@@ -102,6 +134,8 @@ async function fetchArticleContent(url: string): Promise<{ title: string; conten
       title: article.title || '',
       content: article.textContent.trim(),
       images,
+      siteName,
+      pageType,
     };
   } catch {
     console.error(`Failed to fetch: ${url}`);
@@ -153,7 +187,7 @@ export async function POST(request: Request) {
 
     // 3. 本文クローリング（上位5件を全並列処理）
     const crawlTargets = searchResults.slice(0, MAX_CRAWL_ARTICLES);
-    const crawlResults: { url: string; success: boolean; error?: string }[] = [];
+    const crawlResults: { url: string; success: boolean; siteName?: string; pageType?: PageType; error?: string }[] = [];
 
     const promises = crawlTargets.map(async (result) => {
       try {
@@ -182,11 +216,11 @@ export async function POST(request: Request) {
             }
           }
 
-          return { url: result.link, success: true };
+          return { url: result.link, success: true, siteName: article.siteName, pageType: article.pageType };
         }
-        return { url: result.link, success: false, error: '記事本文の抽出に失敗' };
+        return { url: result.link, success: false, siteName: '', pageType: 'unknown' as PageType, error: '記事本文の抽出に失敗' };
       } catch (err) {
-        return { url: result.link, success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+        return { url: result.link, success: false, siteName: '', pageType: 'unknown' as PageType, error: err instanceof Error ? err.message : 'Unknown error' };
       }
     });
 
@@ -207,12 +241,17 @@ export async function POST(request: Request) {
     const failCount = crawlResults.filter((r) => !r.success).length;
 
     // SERP順位一覧を生成
-    const serpList = searchResults.map((r, i) => ({
-      rank: i + 1,
-      title: r.title,
-      url: r.link,
-      crawled: crawlResults.find((cr) => cr.url === r.link)?.success ?? false,
-    }));
+    const serpList = searchResults.map((r, i) => {
+      const crawlResult = crawlResults.find((cr) => cr.url === r.link);
+      return {
+        rank: i + 1,
+        title: r.title,
+        url: r.link,
+        crawled: crawlResult?.success ?? false,
+        siteName: crawlResult?.siteName ?? '',
+        pageType: crawlResult?.pageType ?? 'unknown',
+      };
+    });
 
     return NextResponse.json({
       keyword: kw.keyword,

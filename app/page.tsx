@@ -9,11 +9,15 @@ interface Keyword {
   created_at: string;
 }
 
+type PageType = 'article' | 'service' | 'lp' | 'unknown';
+
 interface SerpItem {
   rank: number;
   title: string;
   url: string;
   crawled: boolean;
+  siteName?: string;
+  pageType?: PageType;
 }
 
 interface DiffChunk {
@@ -536,6 +540,12 @@ export default function Home() {
                                 {item.rank}
                               </div>
                               <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                                  <PageTypeBadge type={item.pageType} />
+                                  {item.siteName && (
+                                    <span className="text-[10px] text-gray-400 font-medium truncate max-w-[120px]">{item.siteName}</span>
+                                  )}
+                                </div>
                                 <p className="text-sm text-gray-900 font-medium leading-snug mb-1 line-clamp-2">
                                   {item.title}
                                 </p>
@@ -852,6 +862,22 @@ export default function Home() {
   );
 }
 
+// ページ種別バッジ
+function PageTypeBadge({ type }: { type?: PageType }) {
+  if (!type || type === 'unknown') return null;
+  const map = {
+    article: { label: '記事', cls: 'bg-sky-50 text-sky-600 border-sky-200' },
+    service: { label: 'サービス', cls: 'bg-purple-50 text-purple-600 border-purple-200' },
+    lp: { label: 'LP', cls: 'bg-orange-50 text-orange-600 border-orange-200' },
+  };
+  const { label, cls } = map[type];
+  return (
+    <span className={`px-1.5 py-0.5 text-[10px] font-bold rounded border ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
 // 変更タイプを判定するヘルパー
 function getChangeType(result: DiffResult): { label: string; color: string; icon: string } {
   if (result.isNewEntry) return { label: '新規', icon: '🆕', color: 'amber' };
@@ -908,6 +934,16 @@ function DiffCard({
     }
   };
 
+  const pageType = ((): PageType => {
+    try {
+      const path = new URL(result.url).pathname;
+      if (/\/lp[\/\-_]|\/landing[\/\-_]/i.test(path)) return 'lp';
+      if (/\/(column|blog|media|article|articles|news|post|posts|topics|journal|magazine|info|guide|howto|tips|knowledge|faq)/i.test(path)) return 'article';
+      if (/\/(service|services|feature|features|product|products|solution|solutions|price|pricing)/i.test(path)) return 'service';
+    } catch { /* ignore */ }
+    return 'unknown';
+  })();
+
   const changeType = getChangeType(result);
   const hasAnyContent = !!(
     result.addedText || result.removedText || localAnalysis ||
@@ -937,6 +973,7 @@ function DiffCard({
                   <span className="ml-1 opacity-60">(+{result.rankChange})</span>
                 </span>
               )}
+              <PageTypeBadge type={pageType} />
               <span className={`px-2 py-0.5 text-[10px] font-medium rounded-md ${
                 changeType.color === 'emerald' ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' :
                 changeType.color === 'violet' ? 'bg-violet-50 text-violet-600 border border-violet-200' :
