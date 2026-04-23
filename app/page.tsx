@@ -684,6 +684,7 @@ export default function Home() {
                             <DiffCard
                               key={index}
                               result={result}
+                              keyword={selectedKeyword.keyword}
                               isExpanded={expandedCards.has(index)}
                               onToggle={() => toggleCard(index)}
                             />
@@ -857,16 +858,51 @@ function getChangeType(result: DiffResult): { label: string; color: string; icon
 // Diff結果カードコンポーネント
 function DiffCard({
   result,
+  keyword,
   isExpanded,
   onToggle,
 }: {
   result: DiffResult;
+  keyword: string;
   isExpanded: boolean;
   onToggle: () => void;
 }) {
+  const [localAnalysis, setLocalAnalysis] = useState<string>(result.aiAnalysis || '');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  const needsAnalysis =
+    !localAnalysis || localAnalysis === '（AI分析は1件目のみ自動実行）';
+
+  const runSingleAnalysis = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsAnalyzing(true);
+    try {
+      const rankChange = result.isNewEntry
+        ? `新規ランクイン（${result.currRank}位）`
+        : `${result.prevRank}位 → ${result.currRank}位`;
+      const res = await fetch('/api/analyze-single', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keyword,
+          url: result.url,
+          rankChange,
+          addedText: result.addedText,
+          removedText: result.removedText,
+        }),
+      });
+      const data = await res.json();
+      if (data.analysis) setLocalAnalysis(data.analysis);
+    } catch {
+      setLocalAnalysis('AI分析に失敗しました');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   const changeType = getChangeType(result);
   const hasAnyContent = !!(
-    result.addedText || result.removedText || result.aiAnalysis ||
+    result.addedText || result.removedText || localAnalysis ||
     (result.addedImages && result.addedImages.length > 0) ||
     (result.removedImages && result.removedImages.length > 0)
   );
@@ -1019,17 +1055,43 @@ function DiffCard({
               </div>
             </div>
           )}
-          {result.aiAnalysis && (
-            <div>
-              <h4 className="text-xs font-bold text-blue-600 mb-2 flex items-center gap-1.5">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-xs font-bold text-blue-600 flex items-center gap-1.5">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93"/><path d="M8 6a4 4 0 0 1 8 0"/><path d="M12 18v4"/><path d="M8 22h8"/><circle cx="12" cy="14" r="4"/></svg>
                 AI分析レポート
               </h4>
-              <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">
-                {result.aiAnalysis}
-              </div>
+              {needsAnalysis && (
+                <button
+                  onClick={runSingleAnalysis}
+                  disabled={isAnalyzing}
+                  className="flex items-center gap-1.5 px-3 py-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-[10px] font-bold rounded-lg transition-colors"
+                >
+                  {isAnalyzing ? (
+                    <>
+                      <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                      分析中...
+                    </>
+                  ) : (
+                    'AI分析する'
+                  )}
+                </button>
+              )}
             </div>
-          )}
+            {localAnalysis && !needsAnalysis ? (
+              <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">
+                {localAnalysis}
+              </div>
+            ) : !isAnalyzing && needsAnalysis ? (
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs text-gray-400 text-center">
+                右上のボタンでAI分析を実行できます
+              </div>
+            ) : isAnalyzing ? (
+              <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-xs text-gray-400 text-center">
+                Gemini AIが分析中...
+              </div>
+            ) : null}
+          </div>
           <div className="pt-1">
             <a
               href={result.url}
