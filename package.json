@@ -13,6 +13,7 @@
     "@mozilla/readability": "^0.6.0",
     "@supabase/supabase-js": "^2.103.3",
     "clsx": "^2.1.0",
+    "diff": "^9.0.0",
     "linkedom": "^0.16.11",
     "next": "^15.0.0",
     "react": "^19.0.0",
@@ -20,6 +21,7 @@
     "recharts": "^2.10.0"
   },
   "devDependencies": {
+    "@types/diff": "^7.0.2",
     "@types/node": "^20.10.5",
     "@types/react": "^18.2.45",
     "@types/react-dom": "^18.2.18",

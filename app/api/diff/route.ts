@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { diffWords } from 'diff';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
@@ -10,29 +11,68 @@ interface SerpEntry {
   title: string | null;
 }
 
-// テキスト差分を抽出（句・節レベルの細かい比較）
-function extractDiff(oldText: string, newText: string): { added: string[]; removed: string[] } {
-  const splitText = (text: string) =>
-    text.split(/[。！？\n；\r]+/).map((l) => l.trim()).filter((l) => l.length >= 5);
+export interface DiffChunk {
+  value: string;
+  added?: boolean;
+  removed?: boolean;
+}
 
-  const oldChunks = splitText(oldText);
-  const newChunks = splitText(newText);
+// 単語レベルの差分を計算し、変更箇所を前後コンテキスト付きで抽出
+function extractWordDiff(oldText: string, newText: string): {
+  added: string[];
+  removed: string[];
+  diffHunks: DiffChunk[][];
+} {
+  const MAX_LEN = 8000;
+  const old = oldText.slice(0, MAX_LEN);
+  const next = newText.slice(0, MAX_LEN);
 
-  const oldSet = new Set(oldChunks);
-  const newSet = new Set(newChunks);
+  const chunks = diffWords(old, next);
 
-  const added: string[] = [];
-  const removed: string[] = [];
+  // DB保存用のサマリー（変更があった単語をまとめる）
+  const added = chunks.filter(c => c.added).map(c => c.value.trim()).filter(Boolean);
+  const removed = chunks.filter(c => c.removed).map(c => c.value.trim()).filter(Boolean);
 
-  newChunks.forEach((chunk) => {
-    if (!oldSet.has(chunk)) added.push(chunk);
-  });
+  // 変更箇所周辺をハンクとして抽出（前後30文字分のコンテキスト）
+  const CONTEXT_CHARS = 60;
+  const hunks: DiffChunk[][] = [];
+  let i = 0;
 
-  oldChunks.forEach((chunk) => {
-    if (!newSet.has(chunk)) removed.push(chunk);
-  });
+  while (i < chunks.length) {
+    if (chunks[i].added || chunks[i].removed) {
+      // 変更箇所を発見 → このあたりを1ハンクとして収集
+      const hunk: DiffChunk[] = [];
 
-  return { added, removed };
+      // 前コンテキスト（直前の未変更チャンクから末尾を取る）
+      if (i > 0 && !chunks[i - 1].added && !chunks[i - 1].removed) {
+        const pre = chunks[i - 1].value;
+        hunk.push({ value: pre.slice(-CONTEXT_CHARS) });
+      }
+
+      // 変更チャンクをまとめる（連続する変更・隣接する変更をグループ化）
+      while (i < chunks.length && (chunks[i].added || chunks[i].removed ||
+        // 変更間の短い未変更テキストも含める
+        (!chunks[i].added && !chunks[i].removed && chunks[i].value.length <= 20 &&
+          i + 1 < chunks.length && (chunks[i + 1].added || chunks[i + 1].removed)))) {
+        hunk.push({ value: chunks[i].value, added: chunks[i].added, removed: chunks[i].removed });
+        i++;
+      }
+
+      // 後コンテキスト
+      if (i < chunks.length && !chunks[i].added && !chunks[i].removed) {
+        const post = chunks[i].value;
+        hunk.push({ value: post.slice(0, CONTEXT_CHARS) });
+      }
+
+      if (hunk.some(c => c.added || c.removed)) {
+        hunks.push(hunk);
+      }
+    } else {
+      i++;
+    }
+  }
+
+  return { added, removed, diffHunks: hunks };
 }
 
 // 画像差分を抽出
@@ -187,6 +227,7 @@ export async function POST(request: Request) {
       addedImages: string[];
       removedImages: string[];
       aiAnalysis: string;
+      diffHunks: DiffChunk[][];
     }> = [];
 
     let aiAnalyzedCount = 0;
@@ -209,6 +250,7 @@ export async function POST(request: Request) {
       let removedImages: string[] = [];
       let aiAnalysis = '';
       let hasContentChange = false;
+      let diffHunks: DiffChunk[][] = [];
 
       if (!isNewEntry) {
         // 記事コンテンツの差分検知
@@ -232,9 +274,10 @@ export async function POST(request: Request) {
         if (newContent && newContent.length > 0 && oldContent && oldContent.length > 0) {
           // 同じコンテンツでないことを確認
           if (newContent[0].fetched_at !== oldContent[0].fetched_at) {
-            const { added, removed } = extractDiff(oldContent[0].content, newContent[0].content);
-            addedText = added.join('\n');
-            removedText = removed.join('\n');
+            const { added, removed, diffHunks: hunks } = extractWordDiff(oldContent[0].content, newContent[0].content);
+            addedText = added.slice(0, 20).join('\n');
+            removedText = removed.slice(0, 20).join('\n');
+            diffHunks = hunks;
 
             const imgDiff = extractImageDiff(
               oldContent[0].images || [],
@@ -335,6 +378,7 @@ export async function POST(request: Request) {
         addedImages,
         removedImages,
         aiAnalysis,
+        diffHunks,
       });
     }
 

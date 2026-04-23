@@ -16,6 +16,12 @@ interface SerpItem {
   crawled: boolean;
 }
 
+interface DiffChunk {
+  value: string;
+  added?: boolean;
+  removed?: boolean;
+}
+
 interface DiffResult {
   url: string;
   title: string | null;
@@ -29,6 +35,7 @@ interface DiffResult {
   addedImages: string[];
   removedImages: string[];
   aiAnalysis: string;
+  diffHunks?: DiffChunk[][];
 }
 
 // 過去DB保存分用
@@ -994,28 +1001,61 @@ function DiffCard({
             </div>
           )}
 
-          {result.addedText && (
+          {/* 単語レベルのインライン差分表示 */}
+          {result.diffHunks && result.diffHunks.length > 0 ? (
             <div>
-              <h4 className="text-xs font-bold text-emerald-600 mb-2 flex items-center gap-1.5">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14m-7-7h14"/></svg>
-                追加されたコンテンツ
+              <h4 className="text-xs font-bold text-gray-700 mb-2 flex items-center gap-1.5">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18"/></svg>
+                差分ハイライト（{result.diffHunks.length}箇所）
               </h4>
-              <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3 text-xs text-gray-700 whitespace-pre-wrap max-h-40 overflow-y-auto leading-relaxed">
-                {result.addedText}
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {result.diffHunks.map((hunk, hi) => (
+                  <div key={hi} className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs leading-relaxed font-mono break-words">
+                    {hunk.map((chunk, ci) => (
+                      <span
+                        key={ci}
+                        className={
+                          chunk.added
+                            ? 'bg-emerald-200 text-emerald-900 rounded px-0.5'
+                            : chunk.removed
+                            ? 'bg-red-200 text-red-900 line-through rounded px-0.5'
+                            : 'text-gray-500'
+                        }
+                      >
+                        {chunk.value}
+                      </span>
+                    ))}
+                  </div>
+                ))}
               </div>
             </div>
-          )}
-          {result.removedText && (
-            <div>
-              <h4 className="text-xs font-bold text-red-500 mb-2 flex items-center gap-1.5">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14"/></svg>
-                削除されたコンテンツ
-              </h4>
-              <div className="bg-red-50 border border-red-100 rounded-lg p-3 text-xs text-gray-700 whitespace-pre-wrap max-h-40 overflow-y-auto leading-relaxed">
-                {result.removedText}
-              </div>
+          ) : (result.addedText || result.removedText) ? (
+            /* フォールバック: 旧形式（履歴データ） */
+            <div className="space-y-3">
+              {result.addedText && (
+                <div>
+                  <h4 className="text-xs font-bold text-emerald-600 mb-2 flex items-center gap-1.5">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14m-7-7h14"/></svg>
+                    追加されたコンテンツ
+                  </h4>
+                  <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3 text-xs text-gray-700 whitespace-pre-wrap max-h-40 overflow-y-auto leading-relaxed">
+                    {result.addedText}
+                  </div>
+                </div>
+              )}
+              {result.removedText && (
+                <div>
+                  <h4 className="text-xs font-bold text-red-500 mb-2 flex items-center gap-1.5">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14"/></svg>
+                    削除されたコンテンツ
+                  </h4>
+                  <div className="bg-red-50 border border-red-100 rounded-lg p-3 text-xs text-gray-700 whitespace-pre-wrap max-h-40 overflow-y-auto leading-relaxed">
+                    {result.removedText}
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+          ) : null}
           {result.addedImages && result.addedImages.length > 0 && (
             <div>
               <h4 className="text-xs font-bold text-emerald-600 mb-2 flex items-center gap-1.5">
