@@ -58,7 +58,17 @@ interface SavedDiffResult {
   detected_at: string;
 }
 
-type TabType = 'serp' | 'diff' | 'history';
+interface Knowledge {
+  id: string;
+  keyword_id: string;
+  keyword_text: string;
+  pattern: string;
+  tags: string[];
+  source_urls: string[];
+  created_at: string;
+}
+
+type TabType = 'serp' | 'diff' | 'history' | 'knowledge';
 
 export default function Home() {
   const [keywords, setKeywords] = useState<Keyword[]>([]);
@@ -83,6 +93,8 @@ export default function Home() {
   const [selectedDateA, setSelectedDateA] = useState<string>('');
   const [selectedDateB, setSelectedDateB] = useState<string>('');
   const [diffMode, setDiffMode] = useState<'all' | 'rank-up'>('all');
+  const [knowledge, setKnowledge] = useState<Knowledge[]>([]);
+  const [isLearning, setIsLearning] = useState(false);
 
   const fetchKeywords = useCallback(async () => {
     setIsLoadingKeywords(true);
@@ -286,6 +298,45 @@ export default function Home() {
     });
   };
 
+  const fetchKnowledge = useCallback(async (keywordId: string) => {
+    try {
+      const res = await fetch(`/api/knowledge?keywordId=${keywordId}`);
+      const data = await res.json();
+      if (data.knowledge) setKnowledge(data.knowledge);
+    } catch {
+      console.error('Failed to fetch knowledge');
+    }
+  }, []);
+
+  const runLearn = async () => {
+    if (!selectedKeyword || isLearning) return;
+    setIsLearning(true);
+    try {
+      const res = await fetch('/api/learn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keywordId: selectedKeyword.id,
+          keywordText: selectedKeyword.keyword,
+          results: diffResults,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.patterns?.length > 0) {
+        setSuccessMsg(`${data.patterns.length}件のパターンを学習しました`);
+        setTimeout(() => setSuccessMsg(''), 4000);
+        fetchKnowledge(selectedKeyword.id);
+        setActiveTab('knowledge');
+      } else {
+        setError(data.message || data.error || 'パターンを抽出できませんでした');
+      }
+    } catch {
+      setError('パターン学習に失敗しました');
+    } finally {
+      setIsLearning(false);
+    }
+  };
+
   const fetchLatestSerp = useCallback(async (keywordId: string) => {
     try {
       const res = await fetch(`/api/serp-latest?keywordId=${keywordId}`);
@@ -313,6 +364,7 @@ export default function Home() {
     fetchSavedDiffs(kw.id);
     fetchCrawlDates(kw.id);
     fetchLatestSerp(kw.id);
+    fetchKnowledge(kw.id);
   };
 
   return (
@@ -516,6 +568,21 @@ export default function Home() {
                         </span>
                       )}
                     </button>
+                    <button
+                      onClick={() => setActiveTab('knowledge')}
+                      className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all ${
+                        activeTab === 'knowledge'
+                          ? 'bg-white text-emerald-700 shadow-sm border border-gray-200'
+                          : 'text-gray-500 hover:text-gray-700'
+                      }`}
+                    >
+                      ナレッジ
+                      {knowledge.length > 0 && (
+                        <span className="ml-1.5 px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-[10px]">
+                          {knowledge.length}
+                        </span>
+                      )}
+                    </button>
                   </div>
 
                   {/* SERP Tab */}
@@ -691,6 +758,20 @@ export default function Home() {
                               <h2 className="text-sm font-bold text-gray-900">
                                 差分検知結果
                               </h2>
+                              <button
+                                onClick={runLearn}
+                                disabled={isLearning}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-[11px] font-bold rounded-lg transition-colors"
+                              >
+                                {isLearning ? (
+                                  <>
+                                    <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                                    学習中...
+                                  </>
+                                ) : (
+                                  '✦ パターン学習'
+                                )}
+                              </button>
                               {diffDates && (
                                 <span className="text-[11px] text-gray-400 bg-gray-100 px-2.5 py-1 rounded-full">
                                   {new Date(diffDates.prevDate).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
@@ -849,6 +930,55 @@ export default function Home() {
                                   </a>
                                 </div>
                               )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {/* Knowledge Tab */}
+                  {activeTab === 'knowledge' && (
+                    <>
+                      {knowledge.length === 0 ? (
+                        <div className="bg-white border border-gray-200 rounded-2xl p-12 text-center shadow-sm">
+                          <div className="text-3xl mb-3 opacity-30">✦</div>
+                          <h3 className="text-base font-bold text-gray-900 mb-2">SEOナレッジ</h3>
+                          <p className="text-sm text-gray-500">
+                            差分検知後に「パターン学習」を実行すると<br />
+                            順位上昇記事の共通パターンが自動蓄積されます。
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between mb-3">
+                            <h2 className="text-sm font-bold text-gray-900">
+                              学習済みパターン（{knowledge.length}件）
+                            </h2>
+                            <span className="text-[11px] text-gray-400">「{selectedKeyword?.keyword}」</span>
+                          </div>
+                          {knowledge.map((k) => (
+                            <div key={k.id} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                              <p className="text-sm font-medium text-gray-900 mb-2">{k.pattern}</p>
+                              <div className="flex items-center gap-2 flex-wrap mb-2">
+                                {k.tags.map((tag) => (
+                                  <span key={tag} className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded-full border border-emerald-200">
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                              {k.source_urls?.length > 0 && (
+                                <div className="space-y-0.5">
+                                  {k.source_urls.map((url) => (
+                                    <a key={url} href={url} target="_blank" rel="noopener noreferrer"
+                                      className="block text-[10px] text-cyan-600 hover:text-cyan-700 truncate transition-colors">
+                                      {url}
+                                    </a>
+                                  ))}
+                                </div>
+                              )}
+                              <p className="text-[10px] text-gray-400 mt-2">
+                                {new Date(k.created_at).toLocaleDateString('ja-JP')}
+                              </p>
                             </div>
                           ))}
                         </div>
