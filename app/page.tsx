@@ -155,7 +155,8 @@ export default function Home() {
     }
   };
 
-  const deleteKeyword = async (id: string) => {
+  const deleteKeyword = async (id: string, keyword: string) => {
+    if (!window.confirm(`「${keyword}」を削除しますか？`)) return;
     try {
       await fetch('/api/keywords', {
         method: 'DELETE',
@@ -395,7 +396,7 @@ export default function Home() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            deleteKeyword(kw.id);
+                            deleteKeyword(kw.id, kw.keyword);
                           }}
                           className="text-gray-400 hover:text-red-500 text-xs ml-2 transition-colors"
                         >
