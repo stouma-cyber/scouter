@@ -5,14 +5,13 @@ export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // ログインページとログインAPIは認証不要
-  if (pathname === '/login' || pathname === '/api/login' || pathname === '/api/admin') {
+  if (pathname === '/login' || pathname === '/api/login') {
     return NextResponse.next();
   }
 
   const auth = request.cookies.get('auth')?.value;
-  const correct = process.env.APP_PASSWORD;
 
-  if (!correct || auth !== correct) {
+  if (auth !== 'authenticated') {
     const loginUrl = new URL('/login', request.url);
     return NextResponse.redirect(loginUrl);
   }
