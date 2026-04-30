@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server';
 
-const AUTH_CODE = '0501';
-
 export async function POST(request: Request) {
   const { code } = await request.json();
+  const AUTH_PASSWORD = process.env.APP_PASSWORD;
 
-  if (code !== AUTH_CODE) {
+  if (!AUTH_PASSWORD || code !== AUTH_PASSWORD) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
